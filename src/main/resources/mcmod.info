@@ -1,21 +1,26 @@
 {
 	"modListVersion": 2,
-	"modList": [{
-		"modid": "${modId}",
-		"name": "${modName}",
-		"description": "An example mod for Minecraft 1.7.10 with Forge focused on a stable setup.",
-		"version": "${modVersion}",
-		"mcversion": "${minecraftVersion}",
-		"url": "https://github.com/SinTh0r4s/MyMod",
-		"updateUrl": "",
-		"authorList": ["SinTho0r4s"],
-		"credits": "",
-		"logoFile": "",
-		"screenshots": [],
-		"parent": "",
-		"requiredMods": [],
-		"dependencies": [],
-		"dependants": [],
-		"useDependencyInformation": false
-	}]
+	"modList": [
+		{
+			"modid": "mcphone",
+			"name": "MCphone",
+			"description": "把一部能用的智能手机塞进 Minecraft：时钟、天气、便签、末影箱、龙研传送、AE2 终端、相机与相册。GTNH 2.9.0-beta3 port of november521/mcphone, MIT.",
+			"version": "${modVersion}",
+			"mcversion": "${minecraftVersion}",
+			"url": "https://github.com/skyc10/mcphone",
+			"updateUrl": "",
+			"authorList": [
+				"november521",
+				"skyc10"
+			],
+			"credits": "",
+			"logoFile": "",
+			"screenshots": [],
+			"parent": "",
+			"requiredMods": [],
+			"dependencies": [],
+			"dependants": [],
+			"useDependencyInformation": false
+		}
+	]
 }

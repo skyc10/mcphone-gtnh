@@ -1,0 +1,69 @@
+item.mcphone.phone.name=Phone
+
+itemGroup.mcphone=MCphone
+
+key.mcphone.phone=Open Phone
+key.mcphone.shutter=Camera Shutter
+
+app.mcphone.clock=Clock
+app.mcphone.weather=Weather
+app.mcphone.notes=Notes
+app.mcphone.enderchest=Ender Chest
+app.mcphone.teleport=Teleport
+app.mcphone.ae2=ME Terminal
+app.mcphone.camera=Camera
+app.mcphone.gallery=Gallery
+app.mcphone.settings=Settings
+app.mcphone.appmgr=Apps
+
+weather.mcphone.clear=Clear
+weather.mcphone.rain=Rain
+weather.mcphone.thunder=Thunder
+temp.mcphone.cold=Cold
+temp.mcphone.temperate=Temperate
+temp.mcphone.hot=Hot
+
+label.mcphone.title=Title
+label.mcphone.body=Body
+label.mcphone.device_name=Device name
+label.mcphone.wallpaper=Wallpaper
+
+btn.mcphone.open=Open
+btn.mcphone.save=Save
+btn.mcphone.cancel=Cancel
+btn.mcphone.new_note=New note
+btn.mcphone.teleport=Teleport now
+btn.mcphone.open_terminal=Open terminal
+btn.mcphone.set_wallpaper=Wallpaper
+btn.mcphone.delete=Delete
+btn.mcphone.back=Back
+btn.mcphone.reset_wallpaper=Reset wallpaper
+btn.mcphone.enter_camera=Enter camera
+btn.mcphone.gallery=Gallery
+btn.mcphone.camera=Camera
+
+msg.mcphone.nophone=§7[MCphone] §cYou need a phone in your inventory.
+msg.mcphone.day=Day %s
+msg.mcphone.biome=Biome:
+msg.mcphone.temp=Climate:
+msg.mcphone.enderchest_hint=Open your ender chest anywhere.
+msg.mcphone.no_notes=No notes yet.
+msg.mcphone.no_charm=No Charm of Dislocation found.
+msg.mcphone.charm_ready=Charm of Dislocation found
+msg.mcphone.charm_hint=Uses the charm in your inventory. Bind a destination with it first (Shift+Right click).
+msg.mcphone.no_ae2=AE2 not installed.
+msg.mcphone.no_wireless=No wireless terminal in inventory.
+msg.mcphone.wireless_ready=Wireless terminal found
+msg.mcphone.ae2_hint=Requires a powered, linked ME Wireless Terminal.
+msg.mcphone.more_photos=More photos...
+msg.mcphone.no_photos=No photos yet. Use the camera app!
+msg.mcphone.wallpaper_set=Wallpaper set.
+msg.mcphone.wallpaper_fail=Failed to set wallpaper.
+msg.mcphone.photo_deleted=Photo deleted.
+msg.mcphone.wallpaper_reset=Wallpaper reset.
+msg.mcphone.wallpaper_hint=Pick one in Gallery > open > Wallpaper.
+msg.mcphone.saved=Saved.
+msg.mcphone.camera_desc=Take photos and save them to .minecraft/mcphone/photos
+msg.mcphone.camera_hint=[C] shoot   [P] exit
+msg.mcphone.addon_hint=Addon API: com.november.mcphone.api.PhoneApi
+msg.mcphone.about=MCphone GTNH port 1.0.0
