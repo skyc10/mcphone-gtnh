@@ -5,7 +5,7 @@
 
 ## 1. 项目是什么
 
-把 november521/mcphone（原版：MC 1.21.1 + NeoForge，作者即本仓库主人 skyc10）移植到 **GTNH 2.9.0-beta-3**（MC 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify + Angelica）。
+由本仓库主人 skyc10（即 november521）将原创 mod MCphone（MC 1.21.1 + NeoForge）移植到 **GTNH 2.9.0-beta-3**（MC 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify + Angelica），并在本仓库中基于 Qz-UILib 完成了 UI 层重写。
 
 - UI 层**整体重写**在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.8+，LGPL-3.0）场景栈上：`UiSurface + McScreenBridge` 宿主模式，原生分辨率渲染。
 - 仓库：`https://github.com/skyc10/mcphone-gtnh`（master = 干净线性历史；`dev-history` 分支 = 完整开发过程历史，含每次修复的细节）。

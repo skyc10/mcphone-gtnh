@@ -2,7 +2,7 @@
 
 把一部能用的智能手机塞进 GTNH —— 拍照、翻相册、换壁纸、记便签、多传送点传送、直连 AE2 通用无线终端，还能给自己那一部手机起个名。
 
-> **这是什么**：[november521/mcphone](https://github.com/november521/mcphone)（原版，主线为 Minecraft 1.21.1 + NeoForge）的 fork 的 **GTNH 2.9 移植分支**。
+> **这是什么**：MCphone 原作者 skyc10（[november521](https://github.com/november521)）亲自将 [MCphone](https://github.com/november521/mcphone)（原版，主线为 Minecraft 1.21.1 + NeoForge）**移植并重写**到 **GTNH 2.9** 的分支——不是第三方 fork，原作者出品。
 > 目标环境：**GTNH 2.9.0-beta-3**（Minecraft 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify）。
 > 界面层整体重写在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) 场景 UI 上（原生分辨率渲染，带现代字体渲染器）。
 
