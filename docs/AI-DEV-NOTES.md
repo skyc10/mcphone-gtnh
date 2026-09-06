@@ -9,7 +9,7 @@
 
 - UI 层**整体重写**在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.8+，LGPL-3.0）场景栈上：`UiSurface + McScreenBridge` 宿主模式，原生分辨率渲染。
 - 仓库：`https://github.com/skyc10/mcphone-gtnh`（master = 干净线性历史；`dev-history` 分支 = 完整开发过程历史，含每次修复的细节）。
-- 本地工程：`E:\zcode\mcphone-gtnh`；Qz-UILib 源码（只读参考/自查用，**禁止修改**）：`E:\zcode\Qz-UILib`。
+- 本地工程与 Qz-UILib 源码（只读参考/自查用，**禁止修改**：[QuanhuZeYu/Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)）的磁盘路径不写入本仓库。
 - 测试实例（PrismLauncher）：
   - `GT_New_Horizons_2.9.0-beta-3_Java_17-26`（日常）
   - `290b3test`（干净对照环境）
@@ -93,7 +93,7 @@ com.november.mcphone
 4. **发版**：用户确认后打 tag（v1.0.3…）推 master+tag，CI 自动发布，`gh release edit` 补中文说明。jar 必须在 tag 后 clean 重建（Tags.VERSION 才正确）。
 5. **Qz-UILib 本体禁止修改**（用户明确要求）；需要 Qz 能力时先查它的公开 API，实在没有就写在 mcphone 内（如自绘按钮）。
 6. **改附属前先问**：附属 mod（浏览器等）暂缓，本体优先。
-7. 网络走本地代理 `127.0.0.1:7897`（git clone/curl/gh 都可能需要）。
+7. 网络代理：本机可能有本地代理（git clone/curl/gh 都可能需要），端口以本机配置为准，不写入仓库。
 8. 提交署名：`user.name=skyc10`（用户 GitHub 账号，gh 已登录）。
 
 ## 6. 快速上手清单（新 AI 会话）
