@@ -647,7 +647,18 @@ public final class ScenePages {
             ui.runtime().on(btn, SceneEventType.CLICK, (e, dispatch) -> {
                 dispatch.stopPropagation();
                 PhoneUi.postAction(() -> {
-                    PhoneCanvas.moveApp(appId, d);
+                    // 在完整 App 列表上交换（旧实现只查已保存的顺序表，表为空时永远无效果）。
+                    java.util.List<String> ids = new java.util.ArrayList<>();
+                    for (IPhoneApp a : PhoneApi.orderedApps()) ids.add(a.id());
+                    if (!ids.contains(appId)) ids.add(appId);
+                    int i = ids.indexOf(appId);
+                    int j = i + d;
+                    if (j >= 0 && j < ids.size()) {
+                        String t = ids.get(i);
+                        ids.set(i, ids.get(j));
+                        ids.set(j, t);
+                        PhoneCanvas.setAppOrder(ids);
+                    }
                     ui.rebuildPage();
                 });
             });

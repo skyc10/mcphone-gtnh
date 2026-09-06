@@ -10,8 +10,6 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MovingObjectPosition;
@@ -20,12 +18,12 @@ import net.minecraft.world.World;
 import com.november.mcphone.core.ItemPhone;
 
 /**
- * 服务端集成动作。全部运行时反射/类名识别，无编译期依赖 AE2 与龙研。
+ * 服务端集成动作。全部运行时反射/类名识别，无编译期依赖 AE2 与 ae2fc。
  *
- * <p>传送：直接内置到手机（NBT 绑定点），不再依赖背包里的传送宝石。</p>
- * <p>AE2：把手机注册为无线终端（{@code IWirelessTermHandler} 的动态代理），
- * 之后 {@code openWirelessTerminalGui} 与 AE2 自家无线终端走完全相同的 GUI 路径；
- * 绑定方式：潜行 + 持手机右击 ME 安全站（写入安全站的 locatable key）。</p>
+ * <p>传送：直接内置到手机（NBT 多传送点），不需要背包里的传送宝石。</p>
+ * <p>AE2：手机注册为无线终端（IWirelessTermHandler 动态代理，电力免费）；
+ * ME App 打开优先级：背包里的真终端（通用无线终端优先，自动换手 + 关闭后换回）
+ * → 手机内置基础终端。绑定：潜行 + 持手机右击 ME 安全站。</p>
  */
 public final class AppIntegrations {
 
@@ -66,6 +64,7 @@ public final class AppIntegrations {
         } catch (Throwable t) {
             System.err.println("[mcphone] AE2 wireless registration failed: " + t);
         }
+    }
 
     /** 手机作为无线终端的 handler 语义（反射调用）。 */
     private static Object invokeHandler(Method method, Object[] args) throws Exception {
@@ -154,7 +153,6 @@ public final class AppIntegrations {
         }
         try {
             Method isTerm = wireless.getClass().getMethod("isWirelessTerminal", ItemStack.class);
-            // 优先找通用无线终端（UWT），其次任意已注册无线终端。
             ItemStack terminal = findPreferredTerminal(player, isTerm, wireless);
             if (terminal != null) {
                 int termSlot = indexOf(player, terminal);
@@ -239,8 +237,8 @@ public final class AppIntegrations {
                     // 终端 GUI 已关闭（容器回到玩家背包容器）→ 换回原物品。
                     if (pl.openContainer == pl.inventoryContainer) {
                         RESTORES.remove(swap);
-                        if (pl.inventory.mainInventory[swap.heldSlot] != null
-                            && pl.inventory.mainInventory[swap.heldSlot].getItem() == ItemPhone.INSTANCE) {
+                        ItemStack inHand = pl.inventory.mainInventory[swap.heldSlot];
+                        if (inHand != null && inHand.getItem() == ItemPhone.INSTANCE) {
                             return; // 已经换回过
                         }
                         ItemStack term = pl.inventory.mainInventory[swap.heldSlot];
@@ -263,7 +261,9 @@ public final class AppIntegrations {
         return null;
     }
 
-/** 潜行 + 持手机右击 ME 安全站：把安全站 locatable key 写入手机 NBT。 */
+    // ===================== 绑定 ME 安全站 =====================
+
+    /** 潜行 + 持手机右击 ME 安全站：把安全站 locatable key 写入手机 NBT。 */
     public static void bindAe2SecurityStation(EntityPlayerMP player, ItemStack phone) {
         if (ae2WirelessRegistry == null) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c未检测到 AE2。"));
@@ -437,4 +437,3 @@ public final class AppIntegrations {
         return null;
     }
 }
-    }
