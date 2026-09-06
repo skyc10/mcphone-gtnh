@@ -49,7 +49,7 @@ Hold it and right-click to power on; with the phone in your inventory, **P** als
 | 📡 ME Terminal | Direct AE2 access. With an **Ultra Wireless Terminal** in your inventory it is auto-swapped into your hand and its full interface opens, then swapped back on close; without one, the phone's built-in item terminal opens (power is free). Bind by sneak + right-clicking an ME Security Station with the phone |
 | 📷 Camera | Viewfinder + key capture. Defaults: **C** shoot, **P** back to the phone (rebindable). Photos contain only the world — HUD, minimap, hotbar and crosshair never appear |
 | 🖼 Gallery | Thumbnail grid, full-size viewer, delete, one-click set-as-wallpaper. Photos live in `.minecraft/mcphone/photos/` (**shared across saves**) — you can also drop any PNG into that folder and the gallery reads it |
-| ⚙️ Settings | Device naming, wallpaper reset, plus **UI size** (50–150%) and **font size** (50–500%) sliders — applied on release, great for high-resolution displays |
+| ⚙️ Settings | Device naming, wallpaper reset, plus **UI size** (50–150%), **font size** (50–500%) and **button text size** (50–250%) sliders — applied on release, great for high-resolution displays |
 | 🗂 App Manager | One row per app: click to enable/disable (applied on next launch), ↑/↓ to reorder home-screen icons, order persisted |
 
 ## For developers / AI handover
