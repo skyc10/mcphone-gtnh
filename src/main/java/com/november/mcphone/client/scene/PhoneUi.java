@@ -348,6 +348,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         grid.setGap(16);
         grid.setScrollable(true);
         grid.setClipChildren(true);
+        club.heiqi.uilib.ui.scene.runtime.SceneScrolls.attach(runtime, grid);
 
         int perRow = 3;
         int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);

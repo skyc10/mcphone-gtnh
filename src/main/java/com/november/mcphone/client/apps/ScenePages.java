@@ -79,7 +79,7 @@ public final class ScenePages {
 
     // ===================== 公共构件 =====================
 
-    private static SceneNode scrollColumn() {
+    private static SceneNode scrollColumn(PhoneUi ui) {
         SceneNode col = SceneNode.column();
         col.setFillParentWidth(true);
         // 填满父级（PageSlot/contentSlot 均为显式固定高），滚动视口因此有确定高度。
@@ -88,6 +88,8 @@ public final class ScenePages {
         col.setGap(10);
         col.setScrollable(true);
         col.setClipChildren(true);
+        // 必须显式挂滚轮处理器：setScrollable 只声明可滚动，滚轮事件由 attach 接线。
+        club.heiqi.uilib.ui.scene.runtime.SceneScrolls.attach(ui.runtime(), col);
         return col;
     }
 
@@ -119,7 +121,7 @@ public final class ScenePages {
     // ===================== 时钟 =====================
 
     public static SceneNode clockPage(PhoneUi ui) {
-        SceneNode page = scrollColumn();
+        SceneNode page = scrollColumn(ui);
         page.setCrossAxisAlign(CrossAxisAlign.CENTER);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.clock")));
 
@@ -139,7 +141,7 @@ public final class ScenePages {
     // ===================== 天气 =====================
 
     public static SceneNode weatherPage(PhoneUi ui) {
-        SceneNode page = scrollColumn();
+        SceneNode page = scrollColumn(ui);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.weather")));
 
         Minecraft mc = Minecraft.getMinecraft();
@@ -203,7 +205,7 @@ public final class ScenePages {
     }
 
     private static void showNotesList(PhoneUi ui, PageSlot slot) {
-        SceneNode list = scrollColumn();
+        SceneNode list = scrollColumn(ui);
         list.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.notes")));
         mountPrimaryButton(ui, list, StatCollector.translateToLocal("btn.mcphone.new_note"),
             () -> showNotesEditor(ui, slot, new NotesStore.Note()));
@@ -317,7 +319,7 @@ public final class ScenePages {
     }
 
     private static void showWaypointList(PhoneUi ui, PageSlot slot) {
-        SceneNode list = scrollColumn();
+        SceneNode list = scrollColumn(ui);
         list.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.teleport")));
         mountPrimaryButton(ui, list, StatCollector.translateToLocal("btn.mcphone.bind_here"),
             () -> NetworkHandler.sendToServer(new NetworkHandler.Teleport(1, -1, "")));
@@ -427,7 +429,7 @@ public final class ScenePages {
     }
 
     private static void showGalleryGrid(PhoneUi ui, PageSlot slot) {
-        SceneNode grid = scrollColumn();
+        SceneNode grid = scrollColumn(ui);
         grid.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.gallery")));
 
         List<File> photos = PhotoStore.listPhotos();
@@ -517,7 +519,7 @@ public final class ScenePages {
     // ===================== 设置 =====================
 
     public static SceneNode settingsPage(PhoneUi ui) {
-        SceneNode page = scrollColumn();
+        SceneNode page = scrollColumn(ui);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.settings")));
 
         // 受控输入：onChange 写回 Signal，保存时从 Signal 读当前值。
@@ -596,7 +598,7 @@ public final class ScenePages {
     // ===================== 应用管理 =====================
 
     public static SceneNode appManagerPage(PhoneUi ui) {
-        SceneNode page = scrollColumn();
+        SceneNode page = scrollColumn(ui);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.appmgr")));
 
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_hint")));
