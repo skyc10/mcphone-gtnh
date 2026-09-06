@@ -213,7 +213,9 @@ public final class AppIntegrations {
             Iterator<Item> it = Item.itemRegistry.iterator();
             while (it.hasNext()) {
                 Item item = it.next();
-                if (item.getClass().getName().equals(UWT_ITEM_CLASS)) {
+                // 类名或注册名任一匹配（ae2fc:wireless_ultra_terminal，注册包装类可能不同）。
+                if (item.getClass().getName().equals(UWT_ITEM_CLASS)
+                    || "ae2fc:wireless_ultra_terminal".equals(Item.itemRegistry.getNameForObject(item))) {
                     uwtItem = item;
                     break;
                 }

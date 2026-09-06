@@ -73,6 +73,8 @@ public final class ClientHooks {
         if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
             com.november.mcphone.client.scene.PhoneUi.tickClock();
         }
+        // 延迟关屏（点击回调里 closePhone 的落地时机）。
+        com.november.mcphone.client.scene.PhoneUi.flushPendingClose();
         // 服务端→客户端传送点同步（netty 线程缓存，主线程应用）。
         java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> sync = pendingWaypointSync;
         if (sync != null) {

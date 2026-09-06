@@ -258,9 +258,8 @@ public class PhoneUi extends AbstractSceneHostWidget {
         buildHomeGrid();
     }
 
-    /** 关闭手机（延迟到输入分发结束，避免 Qz 路由 CME）。 */
     public void closePhone() {
-        post(() -> Minecraft.getMinecraft().displayGuiScreen(null));
+        pendingClose = true;
     }
 
     public void toast(String msg) {
@@ -344,6 +343,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
         label.setTextColor(COL_TEXT);
         label.setFontSize(fs(14));
         label.setMaxTextWidth(cellW);
+        label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
         label.setHitTestable(false);
 
         cell.appendChild(iconBox);
@@ -454,13 +454,14 @@ public class PhoneUi extends AbstractSceneHostWidget {
 
     private static final java.util.Deque<Runnable> PENDING_ACTIONS =
         new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private static volatile boolean pendingClose;
 
-    /** 延迟到本帧输入分发结束后执行（客户端 tick 中 flush）。 */
+    /** 延迟到下一帧渲染开头执行（输入分发期间改树会让 Qz 路由 CME）。 */
     public static void post(Runnable action) {
         if (action != null) PENDING_ACTIONS.add(action);
     }
 
-    /** ClientHooks 客户端 tick 调用：执行排队动作。 */
+    /** 每帧渲染开头 flush：此时改树完全安全（管线尚未 route）。 */
     public static void flushPendingActions() {
         Runnable r;
         while ((r = PENDING_ACTIONS.poll()) != null) {
@@ -469,6 +470,14 @@ public class PhoneUi extends AbstractSceneHostWidget {
             } catch (Throwable t) {
                 System.err.println("[mcphone] deferred action failed: " + t);
             }
+        }
+    }
+
+    /** 关闭手机（延迟到客户端 tick，避免在 drawScreen 内部拆屏）。 */
+    public static void flushPendingClose() {
+        if (pendingClose) {
+            pendingClose = false;
+            Minecraft.getMinecraft().displayGuiScreen(null);
         }
     }
 
@@ -492,6 +501,12 @@ public class PhoneUi extends AbstractSceneHostWidget {
     public void dispose() {
         if (ACTIVE == this) ACTIVE = null;
         super.dispose();
+    }
+
+    @Override
+    public void render(int w, int h, club.heiqi.uilib.ui.render.UiRenderBackend ctx, int absX, int absY) {
+        flushPendingActions();
+        super.render(w, h, ctx, absX, absY);
     }
 
     @Override
