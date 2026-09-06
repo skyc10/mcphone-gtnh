@@ -243,6 +243,8 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         time.setHitTestable(false);
         runtime.bindText(time, CLOCK);
         statusBar.appendChild(time);
+        // 高度先验（Qz 布局求解器要求 grow 的兄弟可先验，否则 contentSlot 高度解耦失败=主屏空白）。
+        statusBar.setPreferredHeight(measurer.lineHeight(fs(16)) + 20);
         SceneNode spacer = SceneNode.column();
         spacer.setFlexGrow(1);
         spacer.setHitTestable(false);
@@ -273,6 +275,9 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         homeBar.setCrossAxisAlign(CrossAxisAlign.CENTER);
         homeBar.setMainAxisAlign(MainAxisAlign.CENTER);
         homeBar.setPadding(6, 6, 6, 6);
+        // 高度先验：按钮行高 + 上下 padding + 按钮内边距（与 playground navBar 同口径）。
+        homeBar.setPreferredHeight(measurer.lineHeight(fs(16)) + 12
+            + 2 * club.heiqi.uilib.ui.scene.paint.SceneChromeTokens.PAD_LG);
         mountButton(homeBar, "⌂", this::backHome);
         panel.appendChild(homeBar);
     }
