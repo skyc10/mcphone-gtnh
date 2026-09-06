@@ -3,12 +3,15 @@ package com.november.mcphone.net;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MovingObjectPosition;
@@ -91,21 +94,41 @@ public final class AppIntegrations {
         }
     }
 
+    /**
+     * 构造 AE2 ConfigManager 并注册终端必需的三个标准设置项。
+     *
+     * <p>缺失这些项时 ContainerMEMonitorable 第一帧 tick 调 getSetting(VIEW_MODE) 会抛
+     * IllegalStateException 崩掉集成服务端（且 session.lock 不释放导致存档暂时进不去），
+     * 与 AE2 ToolWirelessTerminal.getConfigManager 的注册集保持一致。</p>
+     */
     private static Object newConfigManager() {
         try {
             Class<?> cls = Class.forName("appeng.util.ConfigManager");
+            Object cm = null;
             for (java.lang.reflect.Constructor<?> c : cls.getConstructors()) {
                 if (c.getParameterTypes().length == 1) {
-                    return c.newInstance(new Object[] { null });
+                    cm = c.newInstance(new Object[] { null });
+                    break;
                 }
             }
-            return cls.newInstance();
+            if (cm == null) cm = cls.newInstance();
+            Class<?> settings = Class.forName("appeng.api.config.Settings");
+            Method reg = cm.getClass().getMethod("registerSetting", settings, Enum.class);
+            reg.invoke(cm, settings.getField("SORT_BY").get(null), cfgEnum("appeng.api.config.SortOrder", "NAME"));
+            reg.invoke(cm, settings.getField("VIEW_MODE").get(null), cfgEnum("appeng.api.config.ViewItems", "ALL"));
+            reg.invoke(cm, settings.getField("SORT_DIRECTION").get(null), cfgEnum("appeng.api.config.SortDir", "ASCENDING"));
+            return cm;
         } catch (Throwable t) {
+            System.err.println("[mcphone] AE2 ConfigManager init failed: " + t);
             return null;
         }
     }
 
-    /** 通过 AE2 注册表打开手机无线终端；失败/未绑定由 AE2 自己发聊天提示。 */
+    private static Enum<?> cfgEnum(String cls, String name) throws Exception {
+        return (Enum<?>) Class.forName(cls).getField(name).get(null);
+    }
+
+    /** 通过 AE2/WCT 打开手机上的 ME 终端。主路径 = 虚拟 WCT 栈（完整合成终端）；兜底 = 手机内置基础无线终端。 */
     public static void openAe2Terminal(EntityPlayerMP player) {
         Object wireless = ae2WirelessRegistry;
         if (wireless == null) {
@@ -117,6 +140,27 @@ public final class AppIntegrations {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c背包里没有手机。"));
             return;
         }
+        String key = ItemPhone.getAe2Key(phone);
+        if (key.isEmpty()) {
+            player.addChatMessage(new ChatComponentText(
+                "§7[MCphone] §e尚未绑定：请潜行 + 持手机右击 ME 安全站完成绑定。"));
+            return;
+        }
+        Item wct = findWctItem();
+        if (wct != null) {
+            // 主路径：虚拟 WCT 栈，与手持 WCT 右键完全一致（物品+合成+磁力栏+垃圾栏）。
+            try {
+                ItemStack virtual = buildVirtualWctStack(key);
+                wct.onItemRightClick(virtual, player.worldObj, player);
+                return;
+            } catch (Throwable t) {
+                player.addChatMessage(new ChatComponentText(
+                    "§7[MCphone] §cWCT 终端打开失败，回退基础终端: " + t));
+            }
+        } else {
+            player.addChatMessage(new ChatComponentText(
+                "§7[MCphone] §7未检测到 WCT，使用基础无线终端（仅物品终端）。"));
+        }
         try {
             wireless.getClass()
                 .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
@@ -124,6 +168,61 @@ public final class AppIntegrations {
         } catch (Throwable t) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c打开 ME 终端失败: " + t));
         }
+    }
+
+    // ===================== WCT 虚拟物品栈 =====================
+
+    private static final String WCT_ITEM_CLASS =
+        "net.p455w0rd.wirelesscraftingterminal.items.ItemWirelessCraftingTerminal";
+    private static Item wctItem;
+    private static boolean wctResolved;
+
+    /** 懒查找 WCT 终端物品（未装 WCT 时返回 null）。 */
+    private static Item findWctItem() {
+        if (wctResolved) return wctItem;
+        wctResolved = true;
+        try {
+            Class.forName(WCT_ITEM_CLASS);
+            Iterator<Item> it = Item.itemRegistry.iterator();
+            while (it.hasNext()) {
+                Item item = it.next();
+                if (item.getClass().getName().equals(WCT_ITEM_CLASS)) {
+                    wctItem = item;
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return wctItem;
+    }
+
+    /**
+     * 构造虚拟 WCT 栈：拷贝手机的绑定密钥（NBT "key"）、塞满 AE 电力（internalCurrentPower/
+     * internalMaxPower）、放入无限增幅卡（BoosterSlot，等效无限距离）。玩家背包无需任何终端。
+     */
+    private static ItemStack buildVirtualWctStack(String key) throws Exception {
+        ItemStack stack = new ItemStack(findWctItem());
+        NBTTagCompound tag = new NBTTagCompound();
+        tag.setString("key", key);
+        tag.setDouble("internalCurrentPower", 1.0E9D);
+        tag.setDouble("internalMaxPower", 1.0E9D);
+        try {
+            Object api = Class.forName("net.p455w0rd.wirelesscraftingterminal.api.WCTApi")
+                .getMethod("instance").invoke(null);
+            Object items = api.getClass().getMethod("items").invoke(api);
+            Object boosterDesc = items.getClass().getField("InfinityBoosterCard").get(items);
+            Item booster = (Item) boosterDesc.getClass().getMethod("getItem").invoke(boosterDesc);
+            if (booster != null) {
+                NBTTagCompound boosterNbt = new NBTTagCompound();
+                new ItemStack(booster).writeToNBT(boosterNbt);
+                NBTTagList list = new NBTTagList();
+                list.appendTag(boosterNbt);
+                tag.setTag("BoosterSlot", list);
+            }
+        } catch (Throwable t) {
+            System.err.println("[mcphone] WCT booster card injection skipped: " + t);
+        }
+        stack.setTagCompound(tag);
+        return stack;
     }
 
     /** 潜行 + 持手机右击 ME 安全站：把安全站 locatable key 写入手机 NBT。 */
@@ -168,61 +267,93 @@ public final class AppIntegrations {
         return null;
     }
 
-    // ===================== 内置传送 =====================
+    // ===================== 内置传送（多传送点） =====================
 
     /** 跨维度传送的待执行队列：travelToDimension 后下一 tick 落位。 */
     private static final CopyOnWriteArrayList<PendingTeleport> PENDING = new CopyOnWriteArrayList<>();
     private static boolean tickHookRegistered;
 
     /**
-     * @param mode 0 = 传送到绑定点；1 = 绑定当前位置
+     * @param mode  0=传送到指定传送点 1=绑定当前位置 2=重命名 3=删除
+     * @param index mode=0/2/3 的传送点下标
+     * @param name  mode=1 自动命名兜底；mode=2 新名称
      */
-    public static void teleportViaPhone(EntityPlayerMP player, int mode) {
+    public static void teleportViaPhone(EntityPlayerMP player, int mode, int index, String name) {
         ItemStack phone = findPhone(player);
         if (phone == null) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c背包里没有手机。"));
             return;
         }
-        if (mode == 1) {
-            ItemPhone.setTeleportTarget(phone,
-                player.posX, player.posY, player.posZ,
-                player.dimension, player.rotationYaw, player.rotationPitch);
-            player.addChatMessage(new ChatComponentText("§7[MCphone] §a已绑定当前位置："
-                + fmt(player.posX) + ", " + fmt(player.posY) + ", " + fmt(player.posZ)
-                + "（维度 " + player.dimension + "）"));
-            return;
-        }
-        if (!ItemPhone.hasTeleportTarget(phone)) {
-            player.addChatMessage(new ChatComponentText(
-                "§7[MCphone] §e尚未绑定传送点：Shift+点击手机主屏的传送图标以绑定当前位置。"));
-            return;
-        }
-        double x = ItemPhone.getTeleportX(phone);
-        double y = ItemPhone.getTeleportY(phone);
-        double z = ItemPhone.getTeleportZ(phone);
-        int dim = ItemPhone.getTeleportDim(phone);
-        float yaw = ItemPhone.getTeleportYaw(phone);
-        float pitch = ItemPhone.getTeleportPitch(phone);
-        try {
-            if (dim != player.dimension) {
-                scheduleCrossDim(player, x, y, z, dim, yaw, pitch);
-                player.addChatMessage(new ChatComponentText(
-                    "§7[MCphone] §a正在穿越到维度 " + dim + " …"));
-            } else {
-                player.setPositionAndUpdate(x, y, z);
-                player.rotationYaw = yaw;
-                player.rotationPitch = pitch;
-                player.addChatMessage(new ChatComponentText("§7[MCphone] §a传送完成："
-                    + fmt(x) + ", " + fmt(y) + ", " + fmt(z)));
+        List<ItemPhone.Waypoint> wps = ItemPhone.getWaypoints(phone);
+        switch (mode) {
+            case 1: {
+                ItemPhone.Waypoint w = new ItemPhone.Waypoint();
+                w.name = (name == null || name.trim().isEmpty())
+                    ? "Point " + (wps.size() + 1) : name.trim();
+                w.x = player.posX;
+                w.y = player.posY;
+                w.z = player.posZ;
+                w.dim = player.dimension;
+                w.yaw = player.rotationYaw;
+                w.pitch = player.rotationPitch;
+                wps.add(w);
+                ItemPhone.setWaypoints(phone, wps);
+                player.addChatMessage(new ChatComponentText("§7[MCphone] §a已绑定传送点 ["
+                    + w.name + "]：" + fmt(w.x) + ", " + fmt(w.y) + ", " + fmt(w.z)
+                    + "（维度 " + w.dim + "）"));
+                syncWaypoints(player, phone);
+                return;
             }
-        } catch (Throwable t) {
-            player.addChatMessage(new ChatComponentText("§7[MCphone] §c传送失败: " + t));
+            case 2: {
+                if (index < 0 || index >= wps.size()) return;
+                if (name != null && !name.trim().isEmpty()) wps.get(index).name = name.trim();
+                ItemPhone.setWaypoints(phone, wps);
+                syncWaypoints(player, phone);
+                return;
+            }
+            case 3: {
+                if (index < 0 || index >= wps.size()) return;
+                ItemPhone.Waypoint removed = wps.remove(index);
+                ItemPhone.setWaypoints(phone, wps);
+                player.addChatMessage(new ChatComponentText(
+                    "§7[MCphone] §7已删除传送点 [" + removed.name + "]。"));
+                syncWaypoints(player, phone);
+                return;
+            }
+            default: {
+                if (index < 0 || index >= wps.size()) {
+                    player.addChatMessage(new ChatComponentText(
+                        "§7[MCphone] §e传送点不存在，请在手机传送 App 里重新选择。"));
+                    return;
+                }
+                ItemPhone.Waypoint w = wps.get(index);
+                try {
+                    if (w.dim != player.dimension) {
+                        scheduleCrossDim(player, w);
+                        player.addChatMessage(new ChatComponentText(
+                            "§7[MCphone] §a正在穿越到 [" + w.name + "]（维度 " + w.dim + "）…"));
+                    } else {
+                        player.setPositionAndUpdate(w.x, w.y, w.z);
+                        player.rotationYaw = w.yaw;
+                        player.rotationPitch = w.pitch;
+                        player.addChatMessage(new ChatComponentText("§7[MCphone] §a传送完成 [" + w.name + "]："
+                            + fmt(w.x) + ", " + fmt(w.y) + ", " + fmt(w.z)));
+                    }
+                } catch (Throwable t) {
+                    player.addChatMessage(new ChatComponentText("§7[MCphone] §c传送失败: " + t));
+                }
+            }
         }
     }
 
-    private static void scheduleCrossDim(EntityPlayerMP player, double x, double y, double z,
-                                         int dim, float yaw, float pitch) {
-        PENDING.add(new PendingTeleport(player.getCommandSenderName(), x, y, z, dim, yaw, pitch));
+    /** 传送点全量同步给客户端（手机传送页即时刷新）。 */
+    public static void syncWaypoints(EntityPlayerMP player, ItemStack phone) {
+        NetworkHandler.INSTANCE.sendTo(
+            new NetworkHandler.WaypointSync(ItemPhone.getWaypoints(phone)), player);
+    }
+
+    private static void scheduleCrossDim(EntityPlayerMP player, ItemPhone.Waypoint w) {
+        PENDING.add(new PendingTeleport(player.getCommandSenderName(), w));
         if (!tickHookRegistered) {
             tickHookRegistered = true;
             cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new Object() {
@@ -234,14 +365,14 @@ public final class AppIntegrations {
                         PENDING.remove(p);
                         EntityPlayerMP pl = p.resolve();
                         if (pl == null) continue;
-                        if (pl.dimension != p.dim) {
-                            pl.travelToDimension(p.dim);
+                        if (pl.dimension != p.wp.dim) {
+                            pl.travelToDimension(p.wp.dim);
                         }
-                        pl.setPositionAndUpdate(p.x, p.y, p.z);
-                        pl.rotationYaw = p.yaw;
-                        pl.rotationPitch = p.pitch;
-                        pl.addChatMessage(new ChatComponentText("§7[MCphone] §a传送完成："
-                            + fmt(p.x) + ", " + fmt(p.y) + ", " + fmt(p.z)
+                        pl.setPositionAndUpdate(p.wp.x, p.wp.y, p.wp.z);
+                        pl.rotationYaw = p.wp.yaw;
+                        pl.rotationPitch = p.wp.pitch;
+                        pl.addChatMessage(new ChatComponentText("§7[MCphone] §a传送完成 [" + p.wp.name + "]："
+                            + fmt(p.wp.x) + ", " + fmt(p.wp.y) + ", " + fmt(p.wp.z)
                             + "（维度 " + pl.dimension + "）"));
                     }
                 }
@@ -252,21 +383,11 @@ public final class AppIntegrations {
     private static final class PendingTeleport {
 
         final String player;
-        final double x;
-        final double y;
-        final double z;
-        final int dim;
-        final float yaw;
-        final float pitch;
+        final ItemPhone.Waypoint wp;
 
-        PendingTeleport(String player, double x, double y, double z, int dim, float yaw, float pitch) {
+        PendingTeleport(String player, ItemPhone.Waypoint wp) {
             this.player = player;
-            this.x = x;
-            this.y = y;
-            this.z = z;
-            this.dim = dim;
-            this.yaw = yaw;
-            this.pitch = pitch;
+            this.wp = wp;
         }
 
         EntityPlayerMP resolve() {

@@ -44,6 +44,12 @@ public final class BuiltinApps {
         return new Page("clock", "app.mcphone.clock", "钟", 0xFF3E6E9E) {
 
             @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_clock.png";
+            }
+
+
+            @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
                 return ScenePages.clockPage(ui);
             }
@@ -52,6 +58,12 @@ public final class BuiltinApps {
 
     private static IPhoneApp weather() {
         return new Page("weather", "app.mcphone.weather", "天", 0xFF4E8E5E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_weather.png";
+            }
+
 
             @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
@@ -64,6 +76,12 @@ public final class BuiltinApps {
         return new Page("notes", "app.mcphone.notes", "记", 0xFFB29E4E) {
 
             @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_notes.png";
+            }
+
+
+            @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
                 return ScenePages.notesPage(ui);
             }
@@ -72,6 +90,12 @@ public final class BuiltinApps {
 
     private static IPhoneApp gallery() {
         return new Page("gallery", "app.mcphone.gallery", "册", 0xFF9E6E4E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_gallery.png";
+            }
+
 
             @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
@@ -84,6 +108,12 @@ public final class BuiltinApps {
         return new Page("settings", "app.mcphone.settings", "设", 0xFF7E7E86) {
 
             @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_settings.png";
+            }
+
+
+            @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
                 return ScenePages.settingsPage(ui);
             }
@@ -92,6 +122,12 @@ public final class BuiltinApps {
 
     private static IPhoneApp appManager() {
         return new Page("appmgr", "app.mcphone.appmgr", "管", 0xFF8E8E4E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_appmgr.png";
+            }
+
 
             @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
@@ -104,6 +140,12 @@ public final class BuiltinApps {
 
     private static IPhoneApp enderChest() {
         return new Direct("enderchest", "app.mcphone.enderchest", "箱", 0xFF6E4E9E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_enderchest.png";
+            }
+
 
             @Override
             public ItemStack iconItem() {
@@ -120,12 +162,22 @@ public final class BuiltinApps {
     }
 
     private static IPhoneApp teleport() {
-        return new Direct("teleport", "app.mcphone.teleport", "传", 0xFF9E4E6E) {
+        return new Page("teleport", "app.mcphone.teleport", "传", 0xFF9E4E6E) {
 
             @Override
-            public void onActivate(PhoneUi ui, boolean shift) {
-                // 点击直接传送；Shift+点击绑定当前位置。服务器聊天回执确认结果。
-                NetworkHandler.sendToServer(new NetworkHandler.Teleport(shift ? 1 : 0));
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_teleport.png";
+            }
+
+            @Override
+            public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
+                return ScenePages.teleportPage(ui);
+            }
+
+            @Override
+            public void onShiftActivate(PhoneUi ui) {
+                // Shift+点击图标 = 快速绑定当前位置（聊天回执）。
+                NetworkHandler.sendToServer(new NetworkHandler.Teleport(1, -1, ""));
                 ui.closePhone();
             }
         };
@@ -133,6 +185,12 @@ public final class BuiltinApps {
 
     private static IPhoneApp ae2() {
         return new Direct("ae2", "app.mcphone.ae2", "ME", 0xFF4E9EA6) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_ae2.png";
+            }
+
 
             @Override
             public ItemStack iconItem() {
@@ -149,6 +207,12 @@ public final class BuiltinApps {
 
     private static IPhoneApp camera() {
         return new Direct("camera", "app.mcphone.camera", "拍", 0xFF50586E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_camera.png";
+            }
+
 
             @Override
             public void onActivate(PhoneUi ui, boolean shift) {

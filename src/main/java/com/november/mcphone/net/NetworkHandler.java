@@ -15,7 +15,8 @@ import cpw.mods.fml.relauncher.Side;
 import io.netty.buffer.ByteBuf;
 
 /**
- * 网络通道：0=末影箱 1=AE2终端 2=传送（mode: 0=传送/1=绑定） 3=设备名。
+ * 网络通道：0=末影箱 1=AE2终端 2=传送 3=设备名 4=WaypointSync(S→C)。
+ * Teleport 语义：mode 0=传送到指定传送点 1=绑定当前位置 2=重命名 3=删除。
  */
 public final class NetworkHandler {
 
@@ -29,6 +30,7 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(OpenAe2.Handler.class, OpenAe2.class, 1, Side.SERVER);
         INSTANCE.registerMessage(Teleport.Handler.class, Teleport.class, 2, Side.SERVER);
         INSTANCE.registerMessage(SetDeviceName.Handler.class, SetDeviceName.class, 3, Side.SERVER);
+        INSTANCE.registerMessage(WaypointSync.Handler.class, WaypointSync.class, 4, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage msg) {
@@ -89,23 +91,35 @@ public final class NetworkHandler {
 
     public static class Teleport implements IMessage {
 
-        /** 0 = 传送到绑定点；1 = 绑定当前位置。 */
+        /** 0=传送到指定点 1=绑定当前位置 2=重命名 3=删除。 */
         public int mode;
+        /** mode=0/2/3 时的传送点下标；mode=1 时忽略。 */
+        public int index;
+        /** mode=1（可空，空则自动命名）/ mode=2 的名称。 */
+        public String name = "";
 
         public Teleport() {}
 
-        public Teleport(int mode) {
+        public Teleport(int mode, int index, String name) {
             this.mode = mode;
+            this.index = index;
+            this.name = name == null ? "" : name;
         }
 
         @Override
         public void fromBytes(ByteBuf buf) {
             mode = buf.readByte();
+            index = buf.readShort();
+            byte[] data = new byte[buf.readableBytes()];
+            buf.readBytes(data);
+            name = new String(data, java.nio.charset.StandardCharsets.UTF_8);
         }
 
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeByte(mode);
+            buf.writeShort(index);
+            buf.writeBytes(name.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
 
         public static class Handler implements IMessageHandler<Teleport, IMessage> {
@@ -114,7 +128,68 @@ public final class NetworkHandler {
             public IMessage onMessage(Teleport msg, MessageContext ctx) {
                 runOnServer(
                     ctx,
-                    () -> AppIntegrations.teleportViaPhone(ctx.getServerHandler().playerEntity, msg.mode));
+                    () -> AppIntegrations.teleportViaPhone(
+                        ctx.getServerHandler().playerEntity, msg.mode, msg.index, msg.name));
+                return null;
+            }
+        }
+    }
+
+    /** 服务端 → 客户端：传送点列表全量同步（增删改后立即刷新手机页面）。 */
+    public static class WaypointSync implements IMessage {
+
+        public java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> waypoints =
+            new java.util.ArrayList<>();
+
+        public WaypointSync() {}
+
+        public WaypointSync(java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> wps) {
+            this.waypoints = wps;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int n = buf.readShort();
+            waypoints = new java.util.ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                com.november.mcphone.core.ItemPhone.Waypoint w =
+                    new com.november.mcphone.core.ItemPhone.Waypoint();
+                byte[] nb = new byte[buf.readShort()];
+                buf.readBytes(nb);
+                w.name = new String(nb, java.nio.charset.StandardCharsets.UTF_8);
+                w.x = buf.readDouble();
+                w.y = buf.readDouble();
+                w.z = buf.readDouble();
+                w.dim = buf.readInt();
+                w.yaw = buf.readFloat();
+                w.pitch = buf.readFloat();
+                waypoints.add(w);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeShort(waypoints.size());
+            for (com.november.mcphone.core.ItemPhone.Waypoint w : waypoints) {
+                byte[] nb = (w.name == null ? "" : w.name).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                buf.writeShort(nb.length);
+                buf.writeBytes(nb);
+                buf.writeDouble(w.x);
+                buf.writeDouble(w.y);
+                buf.writeDouble(w.z);
+                buf.writeInt(w.dim);
+                buf.writeFloat(w.yaw);
+                buf.writeFloat(w.pitch);
+            }
+        }
+
+        public static class Handler implements IMessageHandler<WaypointSync, IMessage> {
+
+            @Override
+            public IMessage onMessage(WaypointSync msg, MessageContext ctx) {
+                // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用。
+                com.november.mcphone.client.ClientHooks.pendingWaypointSync =
+                    new java.util.ArrayList<>(msg.waypoints);
                 return null;
             }
         }

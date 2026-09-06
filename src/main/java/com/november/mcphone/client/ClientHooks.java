@@ -22,6 +22,9 @@ public final class ClientHooks {
     public static KeyBinding keyPhone;
     public static KeyBinding keyShutter;
 
+    /** WaypointSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
+    public static volatile java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> pendingWaypointSync;
+
     private static boolean cameraMode;
 
     private ClientHooks() {}
@@ -69,6 +72,12 @@ public final class ClientHooks {
         // 手机打开时驱动状态栏/时钟页的世界时钟。
         if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
             com.november.mcphone.client.scene.PhoneUi.tickClock();
+        }
+        // 服务端→客户端传送点同步（netty 线程缓存，主线程应用）。
+        java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> sync = pendingWaypointSync;
+        if (sync != null) {
+            pendingWaypointSync = null;
+            com.november.mcphone.client.scene.PhoneUi.onWaypointSync(sync);
         }
     }
 

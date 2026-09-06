@@ -52,6 +52,14 @@ public interface IPhoneApp {
         return null;
     }
 
+    /**
+     * 可选：用纹理图标（优先级最高），传入 ResourceLocation 路径字符串，
+     * 例如 "mcphone:textures/ui/app_clock.png"，纹理按 128x128 解析。
+     */
+    default String iconTexture() {
+        return null;
+    }
+
     /** 是否点击直达（true 时点击图标立即执行 onActivate，不打开页面）。 */
     default boolean isDirectAction() {
         return false;
@@ -59,6 +67,9 @@ public interface IPhoneApp {
 
     /** 直达型 App 点击回调；shift = Shift+点击（传送用于绑定当前位置）。 */
     default void onActivate(PhoneUi ui, boolean shift) {}
+
+    /** 页面型 App 的 Shift+点击快捷动作（如传送的快速绑定）；默认无动作。 */
+    default void onShiftActivate(PhoneUi ui) {}
 
     /** 页面型 App：构建并返回页面根节点（一次性建树 + runtime 绑定）。 */
     default SceneNode createPage(PhoneUi ui) {

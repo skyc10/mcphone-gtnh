@@ -53,14 +53,21 @@ public final class CameraHandler {
     /** 必须是 public：FML ASM 事件代理跨包调用监听类，包私有在 Java17+ 下会抛 IllegalAccessError。 */
     public static class Overlay {
 
+        /** Pre(ALL)：HUD 尚未绘制的纯世界画面 —— 拍照只含世界，不带左上信息/小地图/热栏/准星。 */
         @cpw.mods.fml.common.eventhandler.SubscribeEvent
-        public void onRenderHud(net.minecraftforge.client.event.RenderGameOverlayEvent.Post event) {
+        public void onRenderHudPre(net.minecraftforge.client.event.RenderGameOverlayEvent.Pre event) {
             if (event.type != net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType.ALL) return;
-            if (!ClientHooks.isCameraMode()) return;
             if (pendingCapture) {
                 tryCapture();
-                return;
             }
+        }
+
+        /** Post(ALL)：画取景框与提示；拍照当帧不画，避免取景框残留进照片。 */
+        @cpw.mods.fml.common.eventhandler.SubscribeEvent
+        public void onRenderHudPost(net.minecraftforge.client.event.RenderGameOverlayEvent.Post event) {
+            if (event.type != net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType.ALL) return;
+            if (!ClientHooks.isCameraMode()) return;
+            if (pendingCapture) return;
             drawViewfinder();
         }
     }

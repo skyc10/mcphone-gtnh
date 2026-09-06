@@ -3,11 +3,13 @@ package com.november.mcphone.core;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.World;
 
 import cpw.mods.fml.common.registry.GameRegistry;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -21,12 +23,6 @@ public class ItemPhone extends Item {
 
     public static final String NBT_DEVICE_NAME = "DeviceName";
     public static final String NBT_AE2_KEY = "AE2Key";
-    private static final String NBT_TP_X = "TpX";
-    private static final String NBT_TP_Y = "TpY";
-    private static final String NBT_TP_Z = "TpZ";
-    private static final String NBT_TP_DIM = "TpDim";
-    private static final String NBT_TP_YAW = "TpYaw";
-    private static final String NBT_TP_PITCH = "TpPitch";
 
     private ItemPhone() {
         setUnlocalizedName("mcphone.phone");
@@ -66,47 +62,6 @@ public class ItemPhone extends Item {
         nbt(stack).putString(NBT_AE2_KEY, key);
     }
 
-    // ===================== 传送绑定点 =====================
-
-    public static boolean hasTeleportTarget(ItemStack stack) {
-        return stack.hasTagCompound() && stack.getTagCompound().hasKey(NBT_TP_DIM);
-    }
-
-    public static void setTeleportTarget(ItemStack stack, double x, double y, double z,
-                                         int dim, float yaw, float pitch) {
-        NBTAccessor n = nbt(stack);
-        n.putDouble(NBT_TP_X, x);
-        n.putDouble(NBT_TP_Y, y);
-        n.putDouble(NBT_TP_Z, z);
-        n.putInt(NBT_TP_DIM, dim);
-        n.putFloat(NBT_TP_YAW, yaw);
-        n.putFloat(NBT_TP_PITCH, pitch);
-    }
-
-    public static double getTeleportX(ItemStack stack) {
-        return stack.getTagCompound().getDouble(NBT_TP_X);
-    }
-
-    public static double getTeleportY(ItemStack stack) {
-        return stack.getTagCompound().getDouble(NBT_TP_Y);
-    }
-
-    public static double getTeleportZ(ItemStack stack) {
-        return stack.getTagCompound().getDouble(NBT_TP_Z);
-    }
-
-    public static int getTeleportDim(ItemStack stack) {
-        return stack.getTagCompound().getInteger(NBT_TP_DIM);
-    }
-
-    public static float getTeleportYaw(ItemStack stack) {
-        return stack.getTagCompound().getFloat(NBT_TP_YAW);
-    }
-
-    public static float getTeleportPitch(ItemStack stack) {
-        return stack.getTagCompound().getFloat(NBT_TP_PITCH);
-    }
-
     // ===================== 交互 =====================
 
     @Override
@@ -121,15 +76,68 @@ public class ItemPhone extends Item {
         return stack;
     }
 
+    // ===================== 传送点（多个） =====================
+
+    public static final String NBT_WAYPOINTS = "Waypoints";
+
+    /** 传送点：名称 + 坐标 + 维度 + 视角。 */
+    public static final class Waypoint {
+
+        public String name;
+        public double x;
+        public double y;
+        public double z;
+        public int dim;
+        public float yaw;
+        public float pitch;
+    }
+
+    /** 读取全部传送点（NBT 无列表时返回空列表）。 */
+    public static List<Waypoint> getWaypoints(ItemStack stack) {
+        List<Waypoint> out = new ArrayList<>();
+        if (!stack.hasTagCompound()) return out;
+        NBTTagList list = stack.getTagCompound().getTagList(NBT_WAYPOINTS, 10);
+        for (int i = 0; i < list.tagCount(); i++) {
+            NBTTagCompound t = list.getCompoundTagAt(i);
+            Waypoint w = new Waypoint();
+            w.name = t.getString("Name");
+            w.x = t.getDouble("X");
+            w.y = t.getDouble("Y");
+            w.z = t.getDouble("Z");
+            w.dim = t.getInteger("Dim");
+            w.yaw = t.getFloat("Yaw");
+            w.pitch = t.getFloat("Pitch");
+            out.add(w);
+        }
+        return out;
+    }
+
+    public static void setWaypoints(ItemStack stack, List<Waypoint> waypoints) {
+        NBTTagCompound root = nbt(stack).tag();
+        NBTTagList list = new NBTTagList();
+        for (Waypoint w : waypoints) {
+            NBTTagCompound t = new NBTTagCompound();
+            t.setString("Name", w.name == null ? "" : w.name);
+            t.setDouble("X", w.x);
+            t.setDouble("Y", w.y);
+            t.setDouble("Z", w.z);
+            t.setInteger("Dim", w.dim);
+            t.setFloat("Yaw", w.yaw);
+            t.setFloat("Pitch", w.pitch);
+            list.appendTag(t);
+        }
+        root.setTag(NBT_WAYPOINTS, list);
+    }
+
     @Override
     public void addInformation(ItemStack stack, EntityPlayer player, List<String> tooltip, boolean advanced) {
         String name = getDeviceName(stack);
         if (name != null && !name.isEmpty()) {
             tooltip.add(name);
         }
-        if (hasTeleportTarget(stack)) {
-            tooltip.add("§7TP: " + String.format("%.0f, %.0f, %.0f @ %d",
-                getTeleportX(stack), getTeleportY(stack), getTeleportZ(stack), getTeleportDim(stack)));
+        int n = getWaypoints(stack).size();
+        if (n > 0) {
+            tooltip.add("§7TP: §a" + n + " §7 waypoint(s)");
         }
         String key = getAe2Key(stack);
         if (key != null && !key.isEmpty()) {

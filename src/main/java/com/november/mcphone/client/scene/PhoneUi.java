@@ -27,6 +27,7 @@ import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
 
 import com.november.mcphone.api.IPhoneApp;
 import com.november.mcphone.api.PhoneApi;
+import com.november.mcphone.client.PhoneCanvas;
 import com.november.mcphone.client.PhotoStore;
 import com.november.mcphone.client.TimeUtil;
 import com.november.mcphone.core.ItemPhone;
@@ -59,31 +60,84 @@ public class PhoneUi extends AbstractSceneHostWidget {
     private static final int COL_BG = 0xF20E1116;
     private static final int COL_BORDER = 0xFF39404B;
     private static final int COL_TEXT = 0xFFE8EDF2;
-    private static final int COL_MUTED = 0xFF8B98A8;
-    private static final int COL_STATUS_BG = 0x66000000;
+    private static final int COL_MUTED = 0xFFB8C4D0;
+    private static final int COL_STATUS_BG = 0x99000000;
+    /** 页面内容底板：半透明深色，保证文字在任何壁纸/世界背景上可读。 */
+    private static final int COL_PAGE_BG = 0x900E1116;
+
+    private static final float BASE_PANEL_HEIGHT = 0.62f;
 
     private final ItemStack phone;
-    private final int panelW;
-    private final int panelH;
+
+    /** 字体缩放（设置 App 调节，settings.properties 持久化）。 */
+    private static volatile float fontScale = PhoneCanvas.getFontScale();
+    /** 界面缩放百分比（50–150）。 */
+    private static volatile int uiScalePercent = PhoneCanvas.getUiScalePercent();
 
     private SceneNode root;
+    private SceneNode panel;
     private SceneNode contentSlot;
     private SceneNode homeBar;
     private MountHandle pageMount;
     private String currentPageId;
+    private int panelW;
+    private int panelH;
 
     public PhoneUi(ItemStack phoneStack) {
         super(new LwjglInputSource(new LwjglStateReader()));
         runtime.__enableMotion();
         this.phone = phoneStack;
+        clientWaypoints = new java.util.ArrayList<>(ItemPhone.getWaypoints(phoneStack));
+        applyPanelSize();
+        buildShell();
+        buildHomeGrid();
+        ACTIVE = this;
+    }
+
+    private void applyPanelSize() {
         Minecraft mc = Minecraft.getMinecraft();
         int screenH = Math.max(400, mc.displayHeight);
         int screenW = Math.max(300, mc.displayWidth);
-        panelH = clamp((int) (screenH * 0.62), 400, 1100);
-        panelW = clamp((int) (panelH * 0.56), 260, 720);
-        buildShell();
-        backHome();
-        ACTIVE = this;
+        float scale = uiScalePercent / 100.0f;
+        int h = (int) (screenH * BASE_PANEL_HEIGHT * scale);
+        panelH = clamp(h, 400, 1400);
+        panelW = clamp((int) (panelH * 0.56), 260, 900);
+        if (panelW > screenW - 40) panelW = Math.max(260, screenW - 40);
+    }
+
+    /** 全局字号：所有手机内文本一律经此换算（设置 App 的字体缩放）。 */
+    public static int fs(int size) {
+        return Math.max(9, Math.round(size * fontScale));
+    }
+
+    /** 字体缩放变化后（设置页滑条）：重开当前页让新字号生效。 */
+    public static void refreshFontScale() {
+        fontScale = PhoneCanvas.getFontScale();
+        PhoneUi ui = ACTIVE;
+        if (ui != null) ui.rebuildPage();
+    }
+
+    /** 界面缩放变化后：重算面板尺寸并重排当前页。 */
+    public static void refreshUiScale() {
+        PhoneUi ui = ACTIVE;
+        if (ui != null) {
+            ui.uiScalePercent = PhoneCanvas.getUiScalePercent();
+            ui.applyPanelSize();
+            ui.panel.setPreferredWidth(ui.panelW);
+            ui.panel.setPreferredHeight(ui.panelH);
+            ui.rebuildPage();
+        }
+    }
+
+    /** 重建当前页（主页或当前 App），旧 MountHandle 一并回收。 */
+    private void rebuildPage() {
+        String id = currentPageId;
+        if (id == null) {
+            swapPage(null, null);
+            buildHomeGrid();
+        } else {
+            openApp(id);
+        }
     }
 
     private static int clamp(int v, int min, int max) {
@@ -120,7 +174,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
         root.setCrossAxisAlign(CrossAxisAlign.CENTER);
         root.setMainAxisAlign(MainAxisAlign.CENTER);
 
-        SceneNode panel = SceneNode.column();
+        panel = SceneNode.column();
         panel.setPreferredWidth(panelW);
         panel.setPreferredHeight(panelH);
         panel.setCornerRadius(22);
@@ -143,7 +197,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
         SceneNode time = new SceneNode();
         time.setText(CLOCK.get());
         time.setTextColor(COL_TEXT);
-        time.setFontSize(16);
+        time.setFontSize(fs(16));
         time.setHitTestable(false);
         runtime.bindText(time, CLOCK);
         statusBar.appendChild(time);
@@ -155,8 +209,8 @@ public class PhoneUi extends AbstractSceneHostWidget {
         SceneNode devName = new SceneNode();
         devName.setText(dev == null || dev.isEmpty()
             ? StatCollector.translateToLocal("label.mcphone.default_device") : dev);
-        devName.setTextColor(COL_MUTED);
-        devName.setFontSize(14);
+        devName.setTextColor(COL_TEXT);
+        devName.setFontSize(fs(14));
         devName.setMaxTextWidth(panelW - 90);
         devName.setHitTestable(false);
         statusBar.appendChild(devName);
@@ -166,6 +220,8 @@ public class PhoneUi extends AbstractSceneHostWidget {
         contentSlot.setFillParentWidth(true);
         contentSlot.setFlexGrow(1);
         contentSlot.setClipChildren(true);
+        // 半透明深色底板：壁纸隐约可见，文字始终可读（浅色背景问题修复）。
+        contentSlot.setBackgroundColor(COL_PAGE_BG);
         panel.appendChild(contentSlot);
 
         homeBar = SceneNode.row();
@@ -263,13 +319,16 @@ public class PhoneUi extends AbstractSceneHostWidget {
         iconBox.setCrossAxisAlign(CrossAxisAlign.CENTER);
 
         ItemStack item = app.iconItem();
-        if (item != null) {
+        String tex = app.iconTexture();
+        if (tex != null) {
+            iconBox.setImageSource(HostImageSource.texture(new net.minecraft.util.ResourceLocation(tex), 128, 128));
+        } else if (item != null) {
             iconBox.setImageSource(HostImageSource.itemIcon(item));
         } else {
             SceneNode glyph = new SceneNode();
             glyph.setText(app.iconGlyph());
             glyph.setTextColor(0xFFFFFFFF);
-            glyph.setFontSize(box / 2);
+            glyph.setFontSize(fs(box / 2));
             glyph.setHitTestable(false);
             iconBox.appendChild(glyph);
         }
@@ -277,7 +336,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
         SceneNode label = new SceneNode();
         label.setText(app.displayName());
         label.setTextColor(COL_TEXT);
-        label.setFontSize(14);
+        label.setFontSize(fs(14));
         label.setMaxTextWidth(cellW);
         label.setHitTestable(false);
 
@@ -287,10 +346,12 @@ public class PhoneUi extends AbstractSceneHostWidget {
         return cell;
     }
 
-    /** 图标点击：直达型立即执行（传送支持 Shift+点击绑定），页面型打开页面。 */
+    /** 图标点击：直达型立即执行（传送支持 Shift+点击绑定）；页面型 Shift+点击走 onShiftActivate。 */
     private void activate(IPhoneApp app, boolean shift) {
         if (app.isDirectAction()) {
             app.onActivate(this, shift);
+        } else if (shift) {
+            app.onShiftActivate(this);
         } else {
             openApp(app.id());
         }
@@ -312,7 +373,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
         SceneNode n = new SceneNode();
         n.setText(value);
         n.setTextColor(color);
-        n.setFontSize(size);
+        n.setFontSize(fs(size));
         n.setHitTestable(false);
         return n;
     }
@@ -351,6 +412,24 @@ public class PhoneUi extends AbstractSceneHostWidget {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 客户端缓存的传送点列表（服务端 WaypointSync 全量刷新）。 */
+    private static volatile java.util.List<ItemPhone.Waypoint> clientWaypoints =
+        new java.util.ArrayList<>();
+
+    /** 服务端同步到达（客户端 tick 主线程调用）：更新缓存并刷新传送页。 */
+    public static void onWaypointSync(java.util.List<ItemPhone.Waypoint> list) {
+        clientWaypoints = new java.util.ArrayList<>(list);
+        PhoneUi ui = ACTIVE;
+        if (ui != null && "teleport".equals(ui.currentPageId)) {
+            ui.rebuildPage();
+        }
+    }
+
+    /** 当前客户端已知的传送点列表（传送页渲染用）。 */
+    public static java.util.List<ItemPhone.Waypoint> waypoints() {
+        return clientWaypoints;
     }
 
     @Override

@@ -126,7 +126,7 @@ public final class ScenePages {
         SceneNode big = new SceneNode();
         big.setText(PhoneUi.clockSignal().get());
         big.setTextColor(COL_TEXT);
-        big.setFontSize(56);
+        big.setFontSize(PhoneUi.fs(56));
         big.setHitTestable(false);
         ui.runtime().bindText(big, PhoneUi.clockSignal());
         page.appendChild(big);
@@ -174,12 +174,12 @@ public final class ScenePages {
         SceneNode k = new SceneNode();
         k.setText(key);
         k.setTextColor(COL_MUTED);
-        k.setFontSize(16);
+        k.setFontSize(PhoneUi.fs(16));
         k.setHitTestable(false);
         SceneNode v = new SceneNode();
         v.setText(value);
         v.setTextColor(COL_TEXT);
-        v.setFontSize(16);
+        v.setFontSize(PhoneUi.fs(16));
         v.setHitTestable(false);
         row.appendChild(k);
         row.appendChild(spacer());
@@ -220,7 +220,7 @@ public final class ScenePages {
             SceneNode t = new SceneNode();
             t.setText(n.title.isEmpty() ? "(...)" : n.title);
             t.setTextColor(COL_TEXT);
-            t.setFontSize(16);
+            t.setFontSize(PhoneUi.fs(16));
             t.setMaxTextWidth(ui.panelWidth() - 60);
             t.setHitTestable(false);
             row.appendChild(t);
@@ -228,7 +228,7 @@ public final class ScenePages {
             SceneNode arrow = new SceneNode();
             arrow.setText("›");
             arrow.setTextColor(COL_MUTED);
-            arrow.setFontSize(16);
+            arrow.setFontSize(PhoneUi.fs(16));
             arrow.setHitTestable(false);
             row.appendChild(arrow);
             ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> showNotesEditor(ui, slot, note));
@@ -238,8 +238,9 @@ public final class ScenePages {
     }
 
     private static void showNotesEditor(PhoneUi ui, PageSlot slot, NotesStore.Note note) {
-        String[] title = {note.title == null ? "" : note.title};
-        String[] body = {note.body == null ? "" : note.body};
+        // 受控输入：onChange 必须把值写回 Signal（控件不自己改 value），保存时从 Signal 读。
+        Signal<String> titleValue = Signal.create(note.title == null ? "" : note.title);
+        Signal<String> bodyValue = Signal.create(note.body == null ? "" : note.body);
 
         SceneNode editor = SceneNode.column();
         editor.setFillParentWidth(true);
@@ -250,21 +251,19 @@ public final class ScenePages {
         mountButton(ui, editor, StatCollector.translateToLocal("btn.mcphone.back"),
             () -> showNotesList(ui, slot));
 
-        Signal<String> titleValue = Signal.create(title[0]);
         SceneNode titleInput = ui.runtime()
             .mount(editor, SceneTextInput.create(ui.runtime(), new SceneTextInput.Props(
                 titleValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
                 StatCollector.translateToLocal("label.mcphone.note_title"), 32,
-                SceneInputType.TEXT, s -> title[0] = s)))
+                SceneInputType.TEXT, titleValue::set)))
             .getRoot();
         titleInput.setFillParentWidth(true);
 
-        Signal<String> bodyValue = Signal.create(body[0]);
         SceneNode area = ui.runtime()
             .mount(editor, SceneTextArea.create(ui.runtime(), new SceneTextArea.Props(
                 bodyValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
                 StatCollector.translateToLocal("label.mcphone.note_body"), 20000,
-                260, s -> body[0] = s)))
+                260, bodyValue::set)))
             .getRoot();
         area.setFillParentWidth(true);
         area.setFlexGrow(1);
@@ -273,8 +272,8 @@ public final class ScenePages {
         actions.setFillParentWidth(true);
         actions.setGap(8);
         mountPrimaryButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
-            note.title = title[0];
-            note.body = body[0];
+            note.title = titleValue.get();
+            note.body = bodyValue.get();
             NotesStore.save(note);
             ui.toast(StatCollector.translateToLocal("msg.mcphone.saved"));
             showNotesList(ui, slot);
@@ -284,6 +283,115 @@ public final class ScenePages {
             showNotesList(ui, slot);
         });
         editor.appendChild(actions);
+        slot.show(editor);
+    }
+
+    // ===================== 传送（多传送点） =====================
+
+    public static SceneNode teleportPage(PhoneUi ui) {
+        SceneNode page = SceneNode.column();
+        page.setFillParentWidth(true);
+        page.setFlexGrow(1);
+        page.setPadding(10);
+        page.setGap(8);
+
+        PageSlot slot = new PageSlot(ui.runtime());
+        page.appendChild(slot.slot);
+        showWaypointList(ui, slot);
+        return page;
+    }
+
+    private static void showWaypointList(PhoneUi ui, PageSlot slot) {
+        SceneNode list = scrollColumn();
+        list.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.teleport")));
+        mountPrimaryButton(ui, list, StatCollector.translateToLocal("btn.mcphone.bind_here"),
+            () -> NetworkHandler.sendToServer(new NetworkHandler.Teleport(1, -1, "")));
+
+        List<ItemPhone.Waypoint> wps = PhoneUi.waypoints();
+        if (wps.isEmpty()) {
+            list.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.tp_empty")));
+        }
+        for (int i = 0; i < wps.size(); i++) {
+            final int idx = i;
+            ItemPhone.Waypoint w = wps.get(i);
+
+            SceneNode card = SceneNode.column();
+            card.setFillParentWidth(true);
+            card.setGap(4);
+            card.setPadding(8, 8, 8, 8);
+            card.setCornerRadius(8);
+            card.setBackgroundColor(COL_PANEL);
+
+            SceneNode nameRow = SceneNode.row();
+            nameRow.setFillParentWidth(true);
+            nameRow.setCrossAxisAlign(CrossAxisAlign.CENTER);
+            nameRow.setGap(6);
+            SceneNode name = new SceneNode();
+            name.setText(w.name);
+            name.setTextColor(COL_TEXT);
+            name.setFontSize(PhoneUi.fs(16));
+            name.setHitTestable(false);
+            nameRow.appendChild(name);
+            nameRow.appendChild(spacer());
+            SceneNode dim = new SceneNode();
+            dim.setText("D" + w.dim);
+            dim.setTextColor(COL_MUTED);
+            dim.setFontSize(PhoneUi.fs(12));
+            dim.setHitTestable(false);
+            nameRow.appendChild(dim);
+            card.appendChild(nameRow);
+
+            SceneNode coords = new SceneNode();
+            coords.setText(String.format("%.0f, %.0f, %.0f", w.x, w.y, w.z));
+            coords.setTextColor(COL_MUTED);
+            coords.setFontSize(PhoneUi.fs(12));
+            coords.setHitTestable(false);
+            card.appendChild(coords);
+
+            SceneNode actions = SceneNode.row();
+            actions.setGap(6);
+            mountPrimaryButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.tp_go"),
+                () -> {
+                    NetworkHandler.sendToServer(new NetworkHandler.Teleport(0, idx, ""));
+                    ui.closePhone();
+                });
+            mountButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.rename"),
+                () -> showWaypointRename(ui, slot, idx, w.name));
+            mountButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.delete"),
+                () -> NetworkHandler.sendToServer(new NetworkHandler.Teleport(3, idx, "")));
+            card.appendChild(actions);
+
+            list.appendChild(card);
+        }
+        slot.show(list);
+    }
+
+    private static void showWaypointRename(PhoneUi ui, PageSlot slot, int index, String oldName) {
+        // 受控输入：onChange 写回 Signal，确认时读 Signal。
+        Signal<String> nameValue = Signal.create(oldName == null ? "" : oldName);
+
+        SceneNode editor = SceneNode.column();
+        editor.setFillParentWidth(true);
+        editor.setFlexGrow(1);
+        editor.setGap(8);
+        editor.setPadding(10);
+
+        mountButton(ui, editor, StatCollector.translateToLocal("btn.mcphone.back"),
+            () -> showWaypointList(ui, slot));
+        editor.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.wp_name")));
+
+        SceneNode input = ui.runtime()
+            .mount(editor, SceneTextInput.create(ui.runtime(), new SceneTextInput.Props(
+                nameValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
+                StatCollector.translateToLocal("label.mcphone.wp_name"), 24,
+                SceneInputType.TEXT, nameValue::set)))
+            .getRoot();
+        input.setFillParentWidth(true);
+
+        mountPrimaryButton(ui, editor, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
+            NetworkHandler.sendToServer(new NetworkHandler.Teleport(2, index, nameValue.get()));
+            showWaypointList(ui, slot);
+        });
         slot.show(editor);
     }
 
@@ -395,13 +503,13 @@ public final class ScenePages {
         SceneNode page = scrollColumn();
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.settings")));
 
-        String[] name = {def(ItemPhone.getDeviceName(ui.phoneStack()))};
-        Signal<String> nameValue = Signal.create(name[0]);
+        // 受控输入：onChange 写回 Signal，保存时从 Signal 读当前值。
+        Signal<String> nameValue = Signal.create(def(ItemPhone.getDeviceName(ui.phoneStack())));
         SceneNode input = ui.runtime()
             .mount(page, SceneTextInput.create(ui.runtime(), new SceneTextInput.Props(
                 nameValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
                 StatCollector.translateToLocal("label.mcphone.device_name"), 24,
-                SceneInputType.TEXT, s -> name[0] = s)))
+                SceneInputType.TEXT, nameValue::set)))
             .getRoot();
         input.setFillParentWidth(true);
 
@@ -409,10 +517,36 @@ public final class ScenePages {
         actions.setFillParentWidth(true);
         actions.setGap(8);
         mountPrimaryButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
-            NetworkHandler.sendToServer(new NetworkHandler.SetDeviceName(name[0]));
+            NetworkHandler.sendToServer(new NetworkHandler.SetDeviceName(nameValue.get()));
             ui.toast(StatCollector.translateToLocal("msg.mcphone.saved"));
         });
         page.appendChild(actions);
+
+        // ===================== 显示（缩放） =====================
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.display")));
+
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.ui_scale")));
+        // 滑条同为受控源：onChange 里写回 Signal 并落盘/应用。
+        Signal<Double> uiScale = Signal.create((double) PhoneCanvas.getUiScalePercent());
+        ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
+            new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
+                uiScale, Signal.create(Boolean.TRUE), 50.0, 150.0, 5.0,
+                (v, committing) -> {
+                    uiScale.set(v);
+                    PhoneCanvas.setUiScalePercent((int) Math.round(v));
+                    PhoneUi.refreshUiScale();
+                })));
+
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.font_scale")));
+        Signal<Double> fontScale = Signal.create(PhoneCanvas.getFontScale() * 100.0);
+        ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
+            new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
+                fontScale, Signal.create(Boolean.TRUE), 70.0, 160.0, 5.0,
+                (v, committing) -> {
+                    fontScale.set(v);
+                    PhoneCanvas.setFontScale((float) (v / 100.0));
+                    PhoneUi.refreshFontScale();
+                })));
 
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.wallpaper")));
         mountPrimaryButton(ui, page, StatCollector.translateToLocal("btn.mcphone.reset_wallpaper"), () -> {
@@ -441,7 +575,7 @@ public final class ScenePages {
             SceneNode label = new SceneNode();
             label.setText(app.displayName() + "  (" + app.id() + ")");
             label.setTextColor(COL_TEXT);
-            label.setFontSize(15);
+            label.setFontSize(PhoneUi.fs(15));
             label.setHitTestable(false);
             row.appendChild(label);
             row.appendChild(spacer());
