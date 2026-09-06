@@ -259,13 +259,26 @@ public final class ScenePages {
             .getRoot();
         titleInput.setFillParentWidth(true);
 
-        SceneNode area = ui.runtime()
-            .mount(editor, SceneTextArea.create(ui.runtime(), new SceneTextArea.Props(
-                bodyValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
-                StatCollector.translateToLocal("label.mcphone.note_body"), 20000,
-                260, bodyValue::set)))
-            .getRoot();
+        club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.Result taRes =
+            club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.create(ui.runtime(),
+                new club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.Props(
+                    bodyValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
+                    StatCollector.translateToLocal("label.mcphone.note_body"), 20000,
+                    0xFF6FB2E8, 0xFFE8EDF2, 0xFF8B98A8, 0xFF666666, bodyValue::set));
+        SceneNode area = taRes.root();
         area.setFillParentWidth(true);
+        area.setPadding(8, 8, 8, 8);
+        area.setBorderWidth(1);
+        area.setBorderColor(COL_BORDER);
+        area.setCornerRadius(8);
+        area.setBackgroundColor(0xFF1A2028);
+        taRes.viewport().setPreferredHeight(260);
+        taRes.viewport().setBackgroundColor(0xFF101418);
+        // 点击文本框任意位置即可编辑（不用精确点到文字上）；打开时自动聚焦。
+        ui.runtime().on(area, club.heiqi.uilib.ui.scene.input.SceneEventType.POINTER_DOWN,
+            (e, ctx) -> ui.runtime().requestFocus(taRes.content()));
+        ui.runtime().requestFocus(taRes.content());
+        editor.appendChild(area);
         // 不做 flexGrow：TextArea 视口高度由 Props.viewportHeight 决定，无界高度会破坏 caret/点击命中。
 
         SceneNode actions = SceneNode.row();
@@ -519,6 +532,7 @@ public final class ScenePages {
         actions.setGap(8);
         mountPrimaryButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
             NetworkHandler.sendToServer(new NetworkHandler.SetDeviceName(nameValue.get()));
+            PhoneUi.updateDeviceName(nameValue.get());
             ui.toast(StatCollector.translateToLocal("msg.mcphone.saved"));
         });
         page.appendChild(actions);
@@ -534,8 +548,10 @@ public final class ScenePages {
                 uiScale, Signal.create(Boolean.TRUE), 50.0, 150.0, 5.0,
                 (v, committing) -> {
                     uiScale.set(v);
-                    PhoneCanvas.setUiScalePercent((int) Math.round(v));
-                    PhoneUi.refreshUiScale();
+                    if (committing) {
+                        PhoneCanvas.setUiScalePercent((int) Math.round(v));
+                        PhoneUi.refreshUiScale();
+                    }
                 })));
 
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.font_scale")));
@@ -545,8 +561,10 @@ public final class ScenePages {
                 fontScale, Signal.create(Boolean.TRUE), 50.0, 500.0, 5.0,
                 (v, committing) -> {
                     fontScale.set(v);
-                    PhoneCanvas.setFontScale((float) (v / 100.0));
-                    PhoneUi.refreshFontScale();
+                    if (committing) {
+                        PhoneCanvas.setFontScale((float) (v / 100.0));
+                        PhoneUi.refreshFontScale();
+                    }
                 })));
 
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.wallpaper")));

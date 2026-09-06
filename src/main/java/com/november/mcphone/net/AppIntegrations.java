@@ -129,10 +129,9 @@ public final class AppIntegrations {
     }
 
     /**
-     * 打开手机上的 ME 终端，三级优先：
-     * 1. ae2fc 通用无线终端 UWT（虚拟栈 + AE2 官方路由，功能最全：物品/流体/样板/请求/接口）；
-     * 2. WCT 无线合成终端（虚拟栈 + 自家右击路径）；
-     * 3. 手机内置基础无线终端（自身 handler 注册路径）。
+     * 打开手机上的 ME 终端：只走 ae2fc 通用无线终端（UWT）。
+     * 虚拟栈拷贝手机绑定密钥（AE2 标准 NBT 键 "encryptionKey"）、塞满 AE 电力、
+     * 放入无限增幅卡，经 AE2 官方路由 openWirelessTerminalGui 打开完整 GUI。
      */
     public static void openAe2Terminal(EntityPlayerMP player) {
         Object wireless = ae2WirelessRegistry;
@@ -151,49 +150,27 @@ public final class AppIntegrations {
                 "§7[MCphone] §e尚未绑定：请潜行 + 持手机右击 ME 安全站完成绑定。"));
             return;
         }
-        // 1) ae2fc 通用无线终端（继承 AE2 ToolWirelessTerminal，走官方路由即可打开完整 GUI）
         Item uwt = findUltraTerminalItem();
-        if (uwt != null) {
-            try {
-                ItemStack virtual = new ItemStack(uwt);
-                NBTTagCompound tag = new NBTTagCompound();
-                tag.setString("key", key);
-                tag.setDouble("internalCurrentPower", 1.0E9D);
-                tag.setDouble("internalMaxPower", 1.0E9D);
-                tag.setInteger("infinityBoosterCard", 1);
-                tag.setInteger("InfinityEnergyCard", 1);
-                virtual.setTagCompound(tag);
-                wireless.getClass()
-                    .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
-                    .invoke(wireless, virtual, player.worldObj, player);
-                return;
-            } catch (Throwable t) {
-                player.addChatMessage(new ChatComponentText(
-                    "§7[MCphone] §c通用无线终端打开失败，尝试 WCT: " + t));
-            }
-        }
-        // 2) WCT 无线合成终端
-        Item wct = findWctItem();
-        if (wct != null) {
-            try {
-                ItemStack virtual = buildVirtualWctStack(key);
-                wct.onItemRightClick(virtual, player.worldObj, player);
-                return;
-            } catch (Throwable t) {
-                player.addChatMessage(new ChatComponentText(
-                    "§7[MCphone] §cWCT 终端打开失败，回退基础终端: " + t));
-            }
-        } else {
+        if (uwt == null) {
             player.addChatMessage(new ChatComponentText(
-                "§7[MCphone] §7未检测到通用终端/WCT，使用基础无线终端（仅物品终端）。"));
+                "§7[MCphone] §c未检测到 ae2fc 通用无线终端（AE2 Fluid Crafting）。"));
+            return;
         }
-        // 3) 基础无线终端（手机自身 handler 路径）
         try {
+            ItemStack virtual = new ItemStack(uwt);
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setString("encryptionKey", key);
+            tag.setString("key", key);
+            tag.setDouble("internalCurrentPower", 1.0E9D);
+            tag.setDouble("internalMaxPower", 1.0E9D);
+            tag.setInteger("infinityBoosterCard", 1);
+            tag.setInteger("InfinityEnergyCard", 1);
+            virtual.setTagCompound(tag);
             wireless.getClass()
                 .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
-                .invoke(wireless, phone, player.worldObj, player);
+                .invoke(wireless, virtual, player.worldObj, player);
         } catch (Throwable t) {
-            player.addChatMessage(new ChatComponentText("§7[MCphone] §c打开 ME 终端失败: " + t));
+            player.addChatMessage(new ChatComponentText("§7[MCphone] §c打开通用无线终端失败: " + t));
         }
     }
 
@@ -224,61 +201,6 @@ public final class AppIntegrations {
         return uwtItem;
     }
 
-    // ===================== WCT 虚拟物品栈 =====================
-
-    private static final String WCT_ITEM_CLASS =
-        "net.p455w0rd.wirelesscraftingterminal.items.ItemWirelessCraftingTerminal";
-    private static Item wctItem;
-    private static boolean wctResolved;
-
-    /** 懒查找 WCT 终端物品（未装 WCT 时返回 null）。 */
-    private static Item findWctItem() {
-        if (wctResolved) return wctItem;
-        wctResolved = true;
-        try {
-            Class.forName(WCT_ITEM_CLASS);
-            Iterator<Item> it = Item.itemRegistry.iterator();
-            while (it.hasNext()) {
-                Item item = it.next();
-                if (item.getClass().getName().equals(WCT_ITEM_CLASS)) {
-                    wctItem = item;
-                    break;
-                }
-            }
-        } catch (Throwable ignored) {}
-        return wctItem;
-    }
-
-    /**
-     * 构造虚拟 WCT 栈：拷贝手机的绑定密钥（NBT "key"）、塞满 AE 电力（internalCurrentPower/
-     * internalMaxPower）、放入无限增幅卡（BoosterSlot，等效无限距离）。玩家背包无需任何终端。
-     */
-    private static ItemStack buildVirtualWctStack(String key) throws Exception {
-        ItemStack stack = new ItemStack(findWctItem());
-        NBTTagCompound tag = new NBTTagCompound();
-        tag.setString("key", key);
-        tag.setDouble("internalCurrentPower", 1.0E9D);
-        tag.setDouble("internalMaxPower", 1.0E9D);
-        try {
-            Object api = Class.forName("net.p455w0rd.wirelesscraftingterminal.api.WCTApi")
-                .getMethod("instance").invoke(null);
-            Object items = api.getClass().getMethod("items").invoke(api);
-            Object boosterDesc = items.getClass().getField("InfinityBoosterCard").get(items);
-            Item booster = (Item) boosterDesc.getClass().getMethod("getItem").invoke(boosterDesc);
-            if (booster != null) {
-                NBTTagCompound boosterNbt = new NBTTagCompound();
-                new ItemStack(booster).writeToNBT(boosterNbt);
-                NBTTagList list = new NBTTagList();
-                list.appendTag(boosterNbt);
-                tag.setTag("BoosterSlot", list);
-            }
-        } catch (Throwable t) {
-            System.err.println("[mcphone] WCT booster card injection skipped: " + t);
-        }
-        stack.setTagCompound(tag);
-        return stack;
-    }
-
     /** 潜行 + 持手机右击 ME 安全站：把安全站 locatable key 写入手机 NBT。 */
     public static void bindAe2SecurityStation(EntityPlayerMP player, ItemStack phone) {
         if (ae2WirelessRegistry == null) {
@@ -304,21 +226,6 @@ public final class AppIntegrations {
         } catch (Throwable t) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c绑定失败: " + t));
         }
-    }
-
-    /** 客户端图标用：找 AE2 无线终端物品（找不到返回 null → 退回字形图标）。 */
-    public static ItemStack findWirelessTerminalIcon() {
-        try {
-            String[] names = { "appeng.items.tools.powered.ToolWirelessTerminal" };
-            Iterator<Item> it = Item.itemRegistry.iterator();
-            while (it.hasNext()) {
-                Item item = it.next();
-                for (String n : names) {
-                    if (item.getClass().getName().equals(n)) return new ItemStack(item, 1, 0);
-                }
-            }
-        } catch (Throwable ignored) {}
-        return null;
     }
 
     // ===================== 内置传送（多传送点） =====================

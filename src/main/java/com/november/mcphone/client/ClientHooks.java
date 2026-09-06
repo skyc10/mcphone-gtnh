@@ -45,7 +45,13 @@ public final class ClientHooks {
         Minecraft mc = Minecraft.getMinecraft();
         if (keyPhone.isPressed()) {
             if (cameraMode) {
+                // P 退出相机模式：回到手机界面而不是完全退出。
                 setCameraMode(false);
+                ItemStack phone = findPhone(mc);
+                if (phone != null) {
+                    mc.displayGuiScreen(new com.november.mcphone.client.scene.PhoneScreen(
+                        new com.november.mcphone.client.scene.PhoneUi(phone)));
+                }
                 return;
             }
             if (mc.currentScreen == null && mc.thePlayer != null) {

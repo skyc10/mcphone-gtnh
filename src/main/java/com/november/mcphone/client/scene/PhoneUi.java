@@ -54,6 +54,9 @@ public class PhoneUi extends AbstractSceneHostWidget {
     private static final Signal<String> CLOCK = Signal.create("--:--");
     private static String lastClock = "";
 
+    /** 设备名（状态栏绑定；设置页保存后即时更新）。 */
+    private static final Signal<String> DEVICE_NAME = Signal.create("");
+
     /** 壁纸图片源（null = 默认深色底）。相册设为壁纸后更新，立即生效。 */
     private static final Signal<SceneImageSource> WALLPAPER = Signal.create(loadWallpaper());
 
@@ -103,6 +106,13 @@ public class PhoneUi extends AbstractSceneHostWidget {
         panelH = clamp(h, 400, 1400);
         panelW = clamp((int) (panelH * 0.56), 260, 900);
         if (panelW > screenW - 40) panelW = Math.max(260, screenW - 40);
+    }
+
+    /** 设置页保存设备名后调用：状态栏立即刷新（服务器 NBT 稍后同步）。 */
+    public static void updateDeviceName(String name) {
+        String shown = (name == null || name.isEmpty())
+            ? StatCollector.translateToLocal("label.mcphone.default_device") : name;
+        DEVICE_NAME.set(shown);
     }
 
     /** 全局字号：所有手机内文本一律经此换算（设置 App 的字体缩放）。 */
@@ -211,13 +221,15 @@ public class PhoneUi extends AbstractSceneHostWidget {
         spacer.setHitTestable(false);
         statusBar.appendChild(spacer);
         String dev = ItemPhone.getDeviceName(phone);
-        SceneNode devName = new SceneNode();
-        devName.setText(dev == null || dev.isEmpty()
+        DEVICE_NAME.set(dev == null || dev.isEmpty()
             ? StatCollector.translateToLocal("label.mcphone.default_device") : dev);
+        SceneNode devName = new SceneNode();
+        devName.setText(DEVICE_NAME.get());
         devName.setTextColor(COL_TEXT);
         devName.setFontSize(fs(14));
         devName.setMaxTextWidth(panelW - 90);
         devName.setHitTestable(false);
+        runtime.bindText(devName, DEVICE_NAME);
         statusBar.appendChild(devName);
         panel.appendChild(statusBar);
 
@@ -417,7 +429,8 @@ public class PhoneUi extends AbstractSceneHostWidget {
         try {
             BufferedImage img = ImageIO.read(f);
             if (img == null) return null;
-            return HostImageSource.bufferedImage(cropToPanelAspect(img), "mcphone:wallpaper");
+            return HostImageSource.bufferedImage(cropToPanelAspect(img),
+                "mcphone:wallpaper#" + System.nanoTime());
         } catch (Exception e) {
             return null;
         }
@@ -473,11 +486,14 @@ public class PhoneUi extends AbstractSceneHostWidget {
         }
     }
 
-    /** 关闭手机（延迟到客户端 tick，避免在 drawScreen 内部拆屏）。 */
+    /** 关闭手机（延迟到客户端 tick）。仅当当前界面仍是手机时才关，避免误关刚打开的末影箱等容器。 */
     public static void flushPendingClose() {
         if (pendingClose) {
             pendingClose = false;
-            Minecraft.getMinecraft().displayGuiScreen(null);
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.currentScreen instanceof PhoneScreen) {
+                mc.displayGuiScreen(null);
+            }
         }
     }
 

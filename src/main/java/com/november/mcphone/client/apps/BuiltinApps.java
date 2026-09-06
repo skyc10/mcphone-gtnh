@@ -193,11 +193,6 @@ public final class BuiltinApps {
 
 
             @Override
-            public ItemStack iconItem() {
-                return AppIntegrations.findWirelessTerminalIcon();
-            }
-
-            @Override
             public void onActivate(PhoneUi ui, boolean shift) {
                 NetworkHandler.sendToServer(new NetworkHandler.OpenAe2());
                 ui.closePhone();
