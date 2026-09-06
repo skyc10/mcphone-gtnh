@@ -3,6 +3,7 @@ package com.november.mcphone;
 import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
 
+import com.november.mcphone.api.PhoneApi;
 import com.november.mcphone.client.ClientHooks;
 import com.november.mcphone.client.scene.PhoneScreen;
 import com.november.mcphone.client.scene.PhoneUi;
@@ -16,6 +17,20 @@ public class ClientProxy extends CommonProxy {
     @SideOnly(Side.CLIENT)
     public void initClientHooks() {
         ClientHooks.preInit();
+    }
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public void initApps() {
+        // 内建 App 注册必须在客户端代理里做：PhoneApi 是 @SideOnly(CLIENT)，
+        // 放在 CommonProxy 会在专用服务端被裁剪导致 NoSuchMethodError。
+        PhoneApi.registerBuiltins();
+    }
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public void postInitApps() {
+        PhoneApi.loadExternalApps();
     }
 
     @Override
