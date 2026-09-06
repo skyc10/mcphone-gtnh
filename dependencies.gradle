@@ -35,7 +35,8 @@
  */
 dependencies {
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.7.69-GTNH:dev")
-    // Qz-UILib（场景 UI 框架）：编译用本地构建的 dev jar；运行时由实例 mods 里的
+    // Qz-UILib（场景 UI 框架）：编译用仓库内 libs/ 的 dev jar（从 Qz-UILib 源码构建后拷入，
+    // 更新时重新构建并覆盖 libs/qz_uilib-dev.jar）；运行时由实例 mods 里的
     // qz_uilib-4.8.0.jar 提供（@Mod dependencies 已声明 required-after）。
-    compileOnly(files(new File(rootDir, "../Qz-UILib/build/libs/qz_uilib-4.8.0-4-0.308+7fd570ab83-dirty-dev.jar").absolutePath))
+    compileOnly(files("libs/qz_uilib-dev.jar"))
 }
