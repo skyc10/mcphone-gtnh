@@ -98,3 +98,5 @@ msg.mcphone.tp_empty=还没有传送点：点击上方按钮绑定当前位置�
 state.mcphone.on=开启
 state.mcphone.off=关闭
 msg.mcphone.appmgr_order_hint=↑/↓ 调整主屏图标顺序。
+label.mcphone.button_scale=
+label.mcphone.button_scale=按钮字号（50–250%）

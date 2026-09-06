@@ -159,10 +159,16 @@ public final class AppIntegrations {
                 int heldSlot = player.inventory.currentItem;
                 ItemStack original = player.inventory.mainInventory[heldSlot];
                 if (termSlot != heldSlot) {
-                    // 换到手上：ae2fc/AE2 的终端 GUI 从手持槽位构建宿主对象。
+                    // 换到手上：ae2fc/AE2 的终端 GUI 从手持槽位构建宿主对象（服务端+客户端都是）。
                     player.inventory.mainInventory[heldSlot] = terminal;
                     player.inventory.mainInventory[termSlot] = original;
                     player.inventory.markDirty();
+                    // 立即把两个槽位同步给客户端：客户端建 GUI 宿主用的是它自己手里的物品，
+                    // 不同步的话客户端看到的还是手机 → 宿主错配 → GUI 半残（无背景面板）。
+                    player.playerNetServerHandler.sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(
+                        player.inventoryContainer.windowId, heldSlot, terminal));
+                    player.playerNetServerHandler.sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(
+                        player.inventoryContainer.windowId, termSlot, original));
                     RESTORES.add(new HandSwap(player.getCommandSenderName(), heldSlot, termSlot, original));
                     ensureSwapTickHook();
                 }

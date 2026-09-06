@@ -98,3 +98,5 @@ msg.mcphone.tp_empty=No waypoints yet: bind here with the button above.
 state.mcphone.on=ON
 state.mcphone.off=OFF
 msg.mcphone.appmgr_order_hint=Use up/down arrows to reorder home icons.
+label.mcphone.button_scale=
+label.mcphone.button_scale=Button size (50-250%)
