@@ -85,7 +85,7 @@ Addons built on the API above:
 
 - **[november521](https://github.com/november521)** — original author of MCphone, where it all began: [november521/mcphone](https://github.com/november521/mcphone) (this repository is its GTNH port + rewrite, done by skyc10 with an AI coding assistant)
 - **[QuanhuZeYu](https://github.com/QuanhuZeYu)** — author of [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib), a rare modern scene UI library on GTNH (LGPL-3.0, used as a dependency by this mod)
-- **[Zhipu AI (Z.ai)](https://github.com/zai-org/GLM-5)** — free GLM-5.3 tokens. This mod's entire GTNH port and rewrite was done by an AI coding assistant powered by GLM-5.3.
+- **[Zhipu AI (Z.ai)](https://github.com/zai-org/GLM-5)** — free GLM-5.3 tokens. This mod's GTNH adaptation and rewrite was done by an AI coding assistant powered by GLM-5.3.
 
 Without the original author's design and code, this GTNH version would not exist. Thank you.
 
