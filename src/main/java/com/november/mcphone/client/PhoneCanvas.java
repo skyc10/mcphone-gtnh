@@ -96,11 +96,11 @@ public final class PhoneCanvas {
         save(p);
     }
 
-    /** 字体缩放系数（0.7–1.6），1.0 = 基准字号。 */
+    /** 字体缩放系数（0.5–5.0），1.0 = 基准字号。 */
     public static float getFontScale() {
         try {
             float v = Float.parseFloat(load().getProperty(KEY_FONT_SCALE, "1.0").trim());
-            return Math.max(0.7f, Math.min(1.6f, v));
+            return Math.max(0.5f, Math.min(5.0f, v));
         } catch (NumberFormatException e) {
             return 1.0f;
         }
@@ -108,7 +108,7 @@ public final class PhoneCanvas {
 
     public static void setFontScale(float scale) {
         Properties p = load();
-        p.setProperty(KEY_FONT_SCALE, String.valueOf(Math.max(0.7f, Math.min(1.6f, scale))));
+        p.setProperty(KEY_FONT_SCALE, String.valueOf(Math.max(0.5f, Math.min(5.0f, scale))));
         save(p);
     }
 }

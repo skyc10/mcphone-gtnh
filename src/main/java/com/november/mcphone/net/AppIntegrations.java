@@ -128,7 +128,12 @@ public final class AppIntegrations {
         return (Enum<?>) Class.forName(cls).getField(name).get(null);
     }
 
-    /** 通过 AE2/WCT 打开手机上的 ME 终端。主路径 = 虚拟 WCT 栈（完整合成终端）；兜底 = 手机内置基础无线终端。 */
+    /**
+     * 打开手机上的 ME 终端，三级优先：
+     * 1. ae2fc 通用无线终端 UWT（虚拟栈 + AE2 官方路由，功能最全：物品/流体/样板/请求/接口）；
+     * 2. WCT 无线合成终端（虚拟栈 + 自家右击路径）；
+     * 3. 手机内置基础无线终端（自身 handler 注册路径）。
+     */
     public static void openAe2Terminal(EntityPlayerMP player) {
         Object wireless = ae2WirelessRegistry;
         if (wireless == null) {
@@ -146,9 +151,30 @@ public final class AppIntegrations {
                 "§7[MCphone] §e尚未绑定：请潜行 + 持手机右击 ME 安全站完成绑定。"));
             return;
         }
+        // 1) ae2fc 通用无线终端（继承 AE2 ToolWirelessTerminal，走官方路由即可打开完整 GUI）
+        Item uwt = findUltraTerminalItem();
+        if (uwt != null) {
+            try {
+                ItemStack virtual = new ItemStack(uwt);
+                NBTTagCompound tag = new NBTTagCompound();
+                tag.setString("key", key);
+                tag.setDouble("internalCurrentPower", 1.0E9D);
+                tag.setDouble("internalMaxPower", 1.0E9D);
+                tag.setInteger("infinityBoosterCard", 1);
+                tag.setInteger("InfinityEnergyCard", 1);
+                virtual.setTagCompound(tag);
+                wireless.getClass()
+                    .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
+                    .invoke(wireless, virtual, player.worldObj, player);
+                return;
+            } catch (Throwable t) {
+                player.addChatMessage(new ChatComponentText(
+                    "§7[MCphone] §c通用无线终端打开失败，尝试 WCT: " + t));
+            }
+        }
+        // 2) WCT 无线合成终端
         Item wct = findWctItem();
         if (wct != null) {
-            // 主路径：虚拟 WCT 栈，与手持 WCT 右键完全一致（物品+合成+磁力栏+垃圾栏）。
             try {
                 ItemStack virtual = buildVirtualWctStack(key);
                 wct.onItemRightClick(virtual, player.worldObj, player);
@@ -159,8 +185,9 @@ public final class AppIntegrations {
             }
         } else {
             player.addChatMessage(new ChatComponentText(
-                "§7[MCphone] §7未检测到 WCT，使用基础无线终端（仅物品终端）。"));
+                "§7[MCphone] §7未检测到通用终端/WCT，使用基础无线终端（仅物品终端）。"));
         }
+        // 3) 基础无线终端（手机自身 handler 路径）
         try {
             wireless.getClass()
                 .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
@@ -168,6 +195,31 @@ public final class AppIntegrations {
         } catch (Throwable t) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c打开 ME 终端失败: " + t));
         }
+    }
+
+    // ===================== ae2fc 通用无线终端（UWT） =====================
+
+    private static final String UWT_ITEM_CLASS =
+        "com.glodblock.github.common.item.ItemWirelessUltraTerminal";
+    private static Item uwtItem;
+    private static boolean uwtResolved;
+
+    /** 懒查找 ae2fc 通用无线终端物品（未装 ae2fc 时返回 null）。 */
+    private static Item findUltraTerminalItem() {
+        if (uwtResolved) return uwtItem;
+        uwtResolved = true;
+        try {
+            Class.forName(UWT_ITEM_CLASS);
+            Iterator<Item> it = Item.itemRegistry.iterator();
+            while (it.hasNext()) {
+                Item item = it.next();
+                if (item.getClass().getName().equals(UWT_ITEM_CLASS)) {
+                    uwtItem = item;
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return uwtItem;
     }
 
     // ===================== WCT 虚拟物品栈 =====================

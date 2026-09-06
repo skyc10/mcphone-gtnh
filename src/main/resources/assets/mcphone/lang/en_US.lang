@@ -95,3 +95,5 @@ btn.mcphone.bind_here=Bind current position
 btn.mcphone.tp_go=Go
 btn.mcphone.rename=Rename
 msg.mcphone.tp_empty=No waypoints yet: bind here with the button above.
+state.mcphone.on=ON
+state.mcphone.off=OFF

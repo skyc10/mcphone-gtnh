@@ -110,27 +110,32 @@ public class PhoneUi extends AbstractSceneHostWidget {
         return Math.max(9, Math.round(size * fontScale));
     }
 
-    /** 字体缩放变化后（设置页滑条）：重开当前页让新字号生效。 */
+    /** 字体缩放变化后（设置页滑条）：重开当前页让新字号生效（延迟到分发结束）。 */
     public static void refreshFontScale() {
         fontScale = PhoneCanvas.getFontScale();
-        PhoneUi ui = ACTIVE;
-        if (ui != null) ui.rebuildPage();
+        post(() -> {
+            PhoneUi ui = ACTIVE;
+            if (ui != null) ui.rebuildPage();
+        });
     }
 
-    /** 界面缩放变化后：重算面板尺寸并重排当前页。 */
+    /** 界面缩放变化后：重算面板尺寸并重排当前页（延迟到分发结束）。 */
     public static void refreshUiScale() {
-        PhoneUi ui = ACTIVE;
-        if (ui != null) {
-            ui.uiScalePercent = PhoneCanvas.getUiScalePercent();
-            ui.applyPanelSize();
-            ui.panel.setPreferredWidth(ui.panelW);
-            ui.panel.setPreferredHeight(ui.panelH);
-            ui.rebuildPage();
-        }
+        post(() -> {
+            PhoneUi ui = ACTIVE;
+            if (ui != null) {
+                ui.uiScalePercent = PhoneCanvas.getUiScalePercent();
+                ui.applyPanelSize();
+                ui.panel.setPreferredWidth(ui.panelW);
+                ui.panel.setPreferredHeight(ui.panelH);
+                ui.rebuildPage();
+            }
+        });
     }
 
     /** 重建当前页（主页或当前 App），旧 MountHandle 一并回收。 */
-    private void rebuildPage() {
+    /** 重建当前页（主页或当前 App），旧 MountHandle 一并回收。 */
+    public void rebuildPage() {
         String id = currentPageId;
         if (id == null) {
             swapPage(null, null);
@@ -253,8 +258,9 @@ public class PhoneUi extends AbstractSceneHostWidget {
         buildHomeGrid();
     }
 
+    /** 关闭手机（延迟到输入分发结束，避免 Qz 路由 CME）。 */
     public void closePhone() {
-        Minecraft.getMinecraft().displayGuiScreen(null);
+        post(() -> Minecraft.getMinecraft().displayGuiScreen(null));
     }
 
     public void toast(String msg) {
@@ -348,21 +354,24 @@ public class PhoneUi extends AbstractSceneHostWidget {
 
     /** 图标点击：直达型立即执行（传送支持 Shift+点击绑定）；页面型 Shift+点击走 onShiftActivate。 */
     private void activate(IPhoneApp app, boolean shift) {
-        if (app.isDirectAction()) {
-            app.onActivate(this, shift);
-        } else if (shift) {
-            app.onShiftActivate(this);
-        } else {
-            openApp(app.id());
-        }
+        post(() -> {
+            if (app.isDirectAction()) {
+                app.onActivate(this, shift);
+            } else if (shift) {
+                app.onShiftActivate(this);
+            } else {
+                openApp(app.id());
+            }
+        });
     }
 
     // ===================== 公共小工具 =====================
 
-    /** 挂一个小圆钮到指定容器（按钮根按内容宽排布）。 */
+    /** 挂一个小圆钮到指定容器（按钮根按内容宽排布；回调延迟到分发结束执行）。 */
     public SceneNode mountButton(SceneNode parent, String label, Runnable onClick) {
         SceneButton.Props props = new SceneButton.Props(
-            Signal.create(label), Signal.create(Boolean.TRUE), onClick);
+            Signal.create(label), Signal.create(Boolean.TRUE),
+            () -> post(onClick));
         SceneNode btn = runtime.mount(parent, SceneButton.create(runtime, props)).getRoot();
         btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
         return btn;
@@ -408,23 +417,70 @@ public class PhoneUi extends AbstractSceneHostWidget {
         try {
             BufferedImage img = ImageIO.read(f);
             if (img == null) return null;
-            return HostImageSource.bufferedImage(img, "mcphone:wallpaper");
+            return HostImageSource.bufferedImage(cropToPanelAspect(img), "mcphone:wallpaper");
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 中心裁剪到手机面板宽高比（约 0.56）：避免壁纸被拉伸变形（图片源按节点边界拉伸填充）。 */
+    private static BufferedImage cropToPanelAspect(BufferedImage src) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (w <= 0 || h <= 0) return src;
+        double target = panelAspect();
+        int cw = (int) Math.min(w, Math.round(h * target));
+        int ch = (int) Math.min(h, Math.round(w / target));
+        int x0 = (w - cw) / 2;
+        int y0 = (h - ch) / 2;
+        if (cw == w && ch == h) return src;
+        return src.getSubimage(x0, y0, cw, ch);
+    }
+
+    private static double panelAspect() {
+        PhoneUi ui = ACTIVE;
+        if (ui != null && ui.panelH > 0) return ui.panelW / (double) ui.panelH;
+        return 0.56;
     }
 
     /** 客户端缓存的传送点列表（服务端 WaypointSync 全量刷新）。 */
     private static volatile java.util.List<ItemPhone.Waypoint> clientWaypoints =
         new java.util.ArrayList<>();
 
+    // ===================== 延迟动作队列 =====================
+    // 点击回调在 Qz 输入路由的迭代中执行：直接改树/关屏会让路由器抛
+    // ConcurrentModificationException（20.04.28 客户端崩溃根因）。
+    // 所有回调里的场景变更与关屏一律 post 到客户端 tick 再执行。
+
+    private static final java.util.Deque<Runnable> PENDING_ACTIONS =
+        new java.util.concurrent.ConcurrentLinkedDeque<>();
+
+    /** 延迟到本帧输入分发结束后执行（客户端 tick 中 flush）。 */
+    public static void post(Runnable action) {
+        if (action != null) PENDING_ACTIONS.add(action);
+    }
+
+    /** ClientHooks 客户端 tick 调用：执行排队动作。 */
+    public static void flushPendingActions() {
+        Runnable r;
+        while ((r = PENDING_ACTIONS.poll()) != null) {
+            try {
+                r.run();
+            } catch (Throwable t) {
+                System.err.println("[mcphone] deferred action failed: " + t);
+            }
+        }
+    }
+
     /** 服务端同步到达（客户端 tick 主线程调用）：更新缓存并刷新传送页。 */
     public static void onWaypointSync(java.util.List<ItemPhone.Waypoint> list) {
         clientWaypoints = new java.util.ArrayList<>(list);
-        PhoneUi ui = ACTIVE;
-        if (ui != null && "teleport".equals(ui.currentPageId)) {
-            ui.rebuildPage();
-        }
+        post(() -> {
+            PhoneUi ui = ACTIVE;
+            if (ui != null && "teleport".equals(ui.currentPageId)) {
+                ui.rebuildPage();
+            }
+        });
     }
 
     /** 当前客户端已知的传送点列表（传送页渲染用）。 */

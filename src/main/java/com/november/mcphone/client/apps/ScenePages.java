@@ -231,7 +231,7 @@ public final class ScenePages {
             arrow.setFontSize(PhoneUi.fs(16));
             arrow.setHitTestable(false);
             row.appendChild(arrow);
-            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> showNotesEditor(ui, slot, note));
+            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.post(() -> showNotesEditor(ui, slot, note)));
             list.appendChild(row);
         }
         slot.show(list);
@@ -266,7 +266,7 @@ public final class ScenePages {
                 260, bodyValue::set)))
             .getRoot();
         area.setFillParentWidth(true);
-        area.setFlexGrow(1);
+        // 不做 flexGrow：TextArea 视口高度由 Props.viewportHeight 决定，无界高度会破坏 caret/点击命中。
 
         SceneNode actions = SceneNode.row();
         actions.setFillParentWidth(true);
@@ -448,7 +448,7 @@ public final class ScenePages {
                 node.setImageSource(HostImageSource.bufferedImage(img, "mcphone:" + photo.getName()));
             }
         } catch (Exception ignored) {}
-        ui.runtime().on(node, SceneEventType.CLICK, (e, ctx) -> showGalleryViewer(ui, slot, photo));
+        ui.runtime().on(node, SceneEventType.CLICK, (e, ctx) -> PhoneUi.post(() -> showGalleryViewer(ui, slot, photo)));
         return node;
     }
 
@@ -460,8 +460,9 @@ public final class ScenePages {
         view.setPadding(10);
 
         SceneNode image = SceneNode.row();
-        image.setFillParentWidth(true);
-        image.setFlexGrow(1);
+        // 显式尺寸：查看器图片节点不参与 flexGrow（无界高度会让图片渲染区域为 0，表现为"不显示内容"）。
+        image.setPreferredWidth(ui.panelWidth() - 24);
+        image.setPreferredHeight((int) ((ui.panelWidth() - 24) * 0.75));
         image.setCornerRadius(10);
         image.setBackgroundColor(0xFF000000);
         image.setClipChildren(true);
@@ -541,7 +542,7 @@ public final class ScenePages {
         Signal<Double> fontScale = Signal.create(PhoneCanvas.getFontScale() * 100.0);
         ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
             new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
-                fontScale, Signal.create(Boolean.TRUE), 70.0, 160.0, 5.0,
+                fontScale, Signal.create(Boolean.TRUE), 50.0, 500.0, 5.0,
                 (v, committing) -> {
                     fontScale.set(v);
                     PhoneCanvas.setFontScale((float) (v / 100.0));
@@ -563,14 +564,15 @@ public final class ScenePages {
         SceneNode page = scrollColumn();
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.appmgr")));
 
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_hint")));
         for (IPhoneApp app : PhoneApi.apps()) {
-            Signal<Boolean> on = Signal.create(PhoneCanvas.isAppEnabled(app.id()));
+            final boolean enabled = PhoneCanvas.isAppEnabled(app.id());
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
             row.setGap(8);
-            row.setPadding(6, 6, 6, 6);
-            row.setCornerRadius(6);
+            row.setPadding(8, 8, 8, 8);
+            row.setCornerRadius(8);
             row.setBackgroundColor(COL_PANEL);
             SceneNode label = new SceneNode();
             label.setText(app.displayName() + "  (" + app.id() + ")");
@@ -579,9 +581,17 @@ public final class ScenePages {
             label.setHitTestable(false);
             row.appendChild(label);
             row.appendChild(spacer());
-            ui.runtime().mount(row, SceneToggle.create(ui.runtime(), new SceneToggle.Props(
-                on, Signal.create(""), Signal.create(Boolean.TRUE),
-                v -> PhoneCanvas.setAppEnabled(app.id(), v))));
+            SceneNode state = new SceneNode();
+            state.setText(StatCollector.translateToLocal(enabled ? "state.mcphone.on" : "state.mcphone.off"));
+            state.setTextColor(enabled ? 0xFF9CE89C : 0xFFE0A0A0);
+            state.setFontSize(PhoneUi.fs(14));
+            state.setHitTestable(false);
+            row.appendChild(state);
+            // 整行可点击切换（旧行内 SceneToggle 不显示/不可点，改为此方案）。
+            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.post(() -> {
+                PhoneCanvas.setAppEnabled(app.id(), !PhoneCanvas.isAppEnabled(app.id()));
+                ui.rebuildPage();
+            }));
             page.appendChild(row);
         }
         return page;

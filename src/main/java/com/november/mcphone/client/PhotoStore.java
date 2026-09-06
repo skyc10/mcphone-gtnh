@@ -23,6 +23,16 @@ public final class PhotoStore {
     public static File photosDir() {
         File f = new File(PhoneCanvas.baseDir(), "photos");
         if (!f.exists()) f.mkdirs();
+        // read-me (created once): players can drop .png photos here for Gallery/wallpaper.
+        File readme = new File(f, "photos-here.txt");
+        if (!readme.isFile()) {
+            try (java.io.Writer w = new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream(readme), java.nio.charset.StandardCharsets.UTF_8)) {
+                w.write("Put .png photos into this folder.\n");
+                w.write("They appear in the phone Gallery app and can be set as wallpaper.\n");
+                w.write("This folder is shared across saves: .minecraft/mcphone/photos\n");
+            } catch (Exception ignored) {}
+        }
         return f;
     }
 

@@ -95,3 +95,5 @@ btn.mcphone.bind_here=绑定当前位置
 btn.mcphone.tp_go=传送
 btn.mcphone.rename=重命名
 msg.mcphone.tp_empty=还没有传送点：点击上方按钮绑定当前位置。
+state.mcphone.on=开启
+state.mcphone.off=关闭
