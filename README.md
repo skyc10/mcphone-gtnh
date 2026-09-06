@@ -78,7 +78,7 @@ MCphone 带一套基于场景 UI 的 App 扩展接口：继承 `PhoneAppBase`、
 
 ## 致谢
 
-- **[november521](https://github.com/november521)** —— MCphone 的原作者，一切从这里开始：[november521/mcphone](https://github.com/november521/mcphone)（本仓库即其 fork 的 GTNH 移植）
+- **[november521](https://github.com/november521)** —— MCphone 的原作者，一切从这里开始：[november521/mcphone](https://github.com/november521/mcphone)（本仓库为其 GTNH 移植+重写版，由 skyc10 借助 AI 完成）
 - **[QuanhuZeYu](https://github.com/QuanhuZeYu)** —— [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) 的作者，GTNH 上难得的现代场景 UI 库（LGPL-3.0，本 mod 以依赖方式使用）
 
 没有原作者的设计与代码，就没有这个 GTNH 版本。感谢。
