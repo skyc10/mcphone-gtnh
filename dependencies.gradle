@@ -39,4 +39,7 @@ dependencies {
     // 更新时重新构建并覆盖 libs/qz_uilib-dev.jar）；运行时由实例 mods 里的
     // qz_uilib-4.8.0.jar 提供（@Mod dependencies 已声明 required-after）。
     compileOnly(files("libs/qz_uilib-dev.jar"))
+    // CI 的 runServer 冒烟测试需要 qz_uilib 真实在运行环境里（@Mod 声明了 required-after）；
+    // 只进开发/测试运行，不对外发布（发布后由玩家的 qz_uilib mod 提供）。
+    runtimeOnlyNonPublishable(files("libs/qz_uilib-dev.jar"))
 }
