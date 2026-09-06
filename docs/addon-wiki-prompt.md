@@ -17,7 +17,7 @@
   `api/PhoneApi.java`，说明文档 `docs/addon-api.md`。App 分两类：
   - **页面型**：`createPage(PhoneUi)` 返回 Qz-UILib 场景树根节点；
   - **直达型**（`isDirectAction()=true`）：点击图标立即执行 `onActivate(ui, shift)`。
-- 实例（测试用）：`C:\Users\陈\AppData\Roaming\PrismLauncher\instances\GT_New_Horizons_2.9.0-beta-3_Java_17-26`，
+- 实例（测试用）：`<Prism 实例目录>/GT_New_Horizons_2.9.0-beta-3_Java_17-26`，
   通过 PrismLauncher 启动，mods 在 `.minecraft\mods\`。
 - UI 框架：Qz-UILib（modId `qz_uilib`，包 `club.heiqi.uilib`），声明式场景树 +
   Signal 响应式；控件 `ui.scene.control.*`（SceneButton/SceneLabel/SceneTextInput/

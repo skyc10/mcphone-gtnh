@@ -61,7 +61,7 @@ com.november.mcphone
 9. **注册调用链脆弱**：`MCphone.init → proxy.initApps() → PhoneApi.registerBuiltins()`。改代理类时务必确认这条链还在。
 10. **退出挂起**：MCEF/JCEF 关闭钩子卡死在原生 CEF（线程转储实锤：RUNNABLE 无 Java 栈）。看门狗 `ForceExitWatchdog`：shutdown 钩子**自身同步执行**（不能派守护子线程——关闭早期会被杀）8s 转储线程栈到 `mcphone/shutdown-dump.txt`、15s `Runtime.halt(0)`。根治=附属浏览器做 MCEF 惰性初始化。
 11. **RFG 映射差异**（对照 MCP 记忆）：`Entity.rayTrace(double,float)`（不是 rayTraceBlocks）、`Entity.setPositionAndUpdate` 存在、槽位包是 `S2FPacketSetSlot`、`Container.inventorySlots`、`Slot.isSlotInInventory/getSlotIndex`。
-12. **Jabel/工具链**：Qz-UILib 构建需要 Azul Zulu 25；用户级 `C:\Users\陈\.gradle\gradle.properties` 的 `org.gradle.java.installations.paths` **覆盖**项目配置——新 JDK 要加到用户级那份里。
+12. **Jabel/工具链**：Qz-UILib 构建需要 Azul Zulu 25；用户级 `%USERPROFILE%\.gradle\gradle.properties` 的 `org.gradle.java.installations.paths` **覆盖**项目配置——新 JDK 要加到用户级那份里。
 
 ### AE2 / ae2fc 集成（全反射，无编译依赖）
 13. **客户端宿主来自"客户端手里的物品"**：AE2/ae2fc 的 GUI 打开时（`GuiBridge.getGuiObject`），服务端和客户端各自用手持槽位构建宿主。手机 ME App 的流程：服务端把真终端换到手上 → **用 `S2FPacketSetSlot` 同步两个槽位给客户端（槽位号必须是 inventoryContainer 容器槽位号，mainInventory 索引≠容器槽位号——发错会同步到头盔槽，客户端解析成 GuiNull 半残）** → 调 `terminal.getItem().onItemRightClick(...)`（与手持右键字节码等价）→ GUI 关闭后（服务端 tick 钩子检测 `openContainer==inventoryContainer`）换回原物品并再次同步。
