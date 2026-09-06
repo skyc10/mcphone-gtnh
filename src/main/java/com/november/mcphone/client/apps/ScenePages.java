@@ -57,11 +57,12 @@ public final class ScenePages {
         final SceneNode slot;
         MountHandle handle;
 
-        PageSlot(SceneRuntime runtime) {
+        PageSlot(SceneRuntime runtime, int height) {
             this.runtime = runtime;
             this.slot = SceneNode.column();
             this.slot.setFillParentWidth(true);
-            this.slot.setFlexGrow(1);
+            // 显式高度先验：grow 求解器在部分容器旁会早退，导致滚动/内容高度塌陷。
+            this.slot.setPreferredHeight(height);
             this.slot.setClipChildren(true);
         }
 
@@ -81,7 +82,8 @@ public final class ScenePages {
     private static SceneNode scrollColumn() {
         SceneNode col = SceneNode.column();
         col.setFillParentWidth(true);
-        col.setFlexGrow(1);
+        // 填满父级（PageSlot/contentSlot 均为显式固定高），滚动视口因此有确定高度。
+        col.setFillParentHeight(true);
         col.setPadding(12);
         col.setGap(10);
         col.setScrollable(true);
@@ -190,11 +192,11 @@ public final class ScenePages {
     public static SceneNode notesPage(PhoneUi ui) {
         SceneNode page = SceneNode.column();
         page.setFillParentWidth(true);
-        page.setFlexGrow(1);
+        page.setPreferredHeight(ui.contentHeight() - 20);
         page.setGap(8);
         page.setPadding(10);
 
-        PageSlot slot = new PageSlot(ui.runtime());
+        PageSlot slot = new PageSlot(ui.runtime(), ui.contentHeight() - 20);
         page.appendChild(slot.slot);
         showNotesList(ui, slot);
         return page;
@@ -242,7 +244,7 @@ public final class ScenePages {
 
         SceneNode editor = SceneNode.column();
         editor.setFillParentWidth(true);
-        editor.setFlexGrow(1);
+        editor.setPreferredHeight(ui.contentHeight() - 20);
         editor.setGap(8);
         editor.setPadding(10);
 
@@ -304,11 +306,11 @@ public final class ScenePages {
     public static SceneNode teleportPage(PhoneUi ui) {
         SceneNode page = SceneNode.column();
         page.setFillParentWidth(true);
-        page.setFlexGrow(1);
+        page.setPreferredHeight(ui.contentHeight() - 20);
         page.setPadding(10);
         page.setGap(8);
 
-        PageSlot slot = new PageSlot(ui.runtime());
+        PageSlot slot = new PageSlot(ui.runtime(), ui.contentHeight() - 20);
         page.appendChild(slot.slot);
         showWaypointList(ui, slot);
         return page;
@@ -385,7 +387,7 @@ public final class ScenePages {
 
         SceneNode editor = SceneNode.column();
         editor.setFillParentWidth(true);
-        editor.setFlexGrow(1);
+        editor.setPreferredHeight(ui.contentHeight() - 20);
         editor.setGap(8);
         editor.setPadding(10);
 
@@ -414,11 +416,11 @@ public final class ScenePages {
     public static SceneNode galleryPage(PhoneUi ui) {
         SceneNode page = SceneNode.column();
         page.setFillParentWidth(true);
-        page.setFlexGrow(1);
+        page.setPreferredHeight(ui.contentHeight() - 20);
         page.setPadding(10);
         page.setGap(8);
 
-        PageSlot slot = new PageSlot(ui.runtime());
+        PageSlot slot = new PageSlot(ui.runtime(), ui.contentHeight() - 20);
         page.appendChild(slot.slot);
         showGalleryGrid(ui, slot);
         return page;
@@ -469,7 +471,7 @@ public final class ScenePages {
     private static void showGalleryViewer(PhoneUi ui, PageSlot slot, File photo) {
         SceneNode view = SceneNode.column();
         view.setFillParentWidth(true);
-        view.setFlexGrow(1);
+        view.setPreferredHeight(ui.contentHeight() - 20);
         view.setGap(8);
         view.setPadding(10);
 
