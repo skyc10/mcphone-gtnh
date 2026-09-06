@@ -1,109 +1,82 @@
-# Example Forge Mod for Minecraft 1.7.10
+# MCphone (GTNH)
 
-[![](https://jitpack.io/v/GTNewHorizons/ExampleMod1.7.10.svg)](https://jitpack.io/#GTNewHorizons/ExampleMod1.7.10)
-[![](https://github.com/GTNewHorizons/ExampleMod1.7.10/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/GTNewHorizons/ExampleMod1.7.10/actions/workflows/build-and-test.yml)
+把一部能用的智能手机塞进 GTNH —— 拍照、翻相册、换壁纸、记便签、多传送点传送、直连 AE2 通用无线终端，还能给自己那一部手机起个名。
 
-An example mod for Minecraft 1.7.10 with Forge focussed on a stable, updatable setup.
+> **这是什么**：[november521/mcphone](https://github.com/november521/mcphone)（原版）→ [skyc10/mcphone](https://github.com/skyc10/mcphone)（1.21.1 NeoForge 版）的 **GTNH 2.9 移植分支**。
+> 目标环境：**GTNH 2.9.0-beta-3**（Minecraft 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify）。
+> 界面层整体重写在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) 场景 UI 上（原生分辨率渲染，带现代字体渲染器）。
 
-<!-- omit in toc -->
-### Table of Contents
+**Minecraft 1.7.10** · **GTNH 2.9.0-beta-3** · 客户端与服务端都需安装
 
-* [Example Forge Mod for Minecraft 1.7.10](#example-forge-mod-for-minecraft-1710)
-    * [Motivation](#motivation)
-    * [Help! I'm stuck!](#help-im-stuck)
-    * [Getting started](#getting-started)
-    * [Features](#features)
-    * [Files](#files)
-    * [Forge's Access Transformers](#forges-access-transformers)
-    * [Mixins](#mixins)
-    * [Advanced](#advanced)
-    * [Feedback wanted](#feedback-wanted)
+**前置模组**：
 
+| 模组 | 说明 |
+| --- | --- |
+| [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.8+） | **必需前置**。GTNH 专用的现代场景 UI 库，手机的整个界面都跑在它上面。仓库里不发布构建产物时，可从本项目 Release 一起下载 |
 
-### Motivation
+**可选依赖**（装了多点东西，不装一切照常）：
 
-We had our fair share in struggles with build scripts for Minecraft Forge. There are quite a few pitfalls from non-obvious error messages. This Example Project provides you a build system you can adapt to over 90% of Minecraft Forge mods and can easily be updated if need be.
+| 模组 | 装了会怎样 |
+| --- | --- |
+| [AE2](https://github.com/AppliedEnergistics/Applied-Energistics-2)（GTNH rv3 fork） | ME 终端 App 可用：潜行+持手机右击 ME 安全站绑定后，点图标直接打开终端（电力免费） |
+| [ae2fc](https://www.curseforge.com/minecraft/mc-mods/ae2-fluid-crafting) | 背包里放一个**通用无线终端**，ME App 会自动换手打开它的完整形态（物品/流体/样板/请求/接口），关界面自动换回 |
 
-### Help! I'm stuck!
+---
 
-We all have been there! Check out our [FAQ](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/docs/FAQ.md). If that doesn't help, please open an issue.
+## 怎么拿到手机
 
-### Getting started
+工作台合成，一次一部：
 
-> [!WARNING]
-> Do not clone or fork this repository when creating a new mod. It contains files that are specific to this example project and are not part of the mod template. Use the [project starter](https://github.com/GTNewHorizons/ExampleMod1.7.10/releases/download/master-packages/starter.zip) instead.
+```
+铁锭   玻璃   铁锭
+铁锭   红石   铁锭
+       铁锭
+```
 
-Creating mod from scratch:
-1. Unzip [project starter](https://github.com/GTNewHorizons/ExampleMod1.7.10/releases/download/master-packages/starter.zip) into project directory.
-2. Replace placeholders in LICENSE-template and rename it to LICENSE, or remove LICENSE-template and put any other license you like on your code. This is an permissive OSS project and we encourage you participate in OSS movement by having permissive license like one in template. You can find out pros and cons of OSS software in [this article](https://www.freecodecamp.org/news/what-is-great-about-developing-open-source-and-what-is-not/)
-3. Ensure your project is under VCS. For example initialise git repository by running `git init; git commit --message "initialized repository"`.
-4. Replace placeholders (edit values in gradle.properties, change example package and class names, etc.)
-5. Run `./gradlew setupDecompWorkspace`
-6. Run `./gradlew build`
-6. Make sure to check out the rest sections of this file.
-7. You are good to go!
+拿在手上右键开机；手机在背包里时按 **P** 也能开机（可在原版「选项 → 按键设置 → MCphone」改键）。
 
-We also have described guidelines for existing mod [migration](docs/migration.md) and [porting](docs/porting.md)
+`Esc` 分层级：在 App 页面按是退回主屏，在主屏按才是关机；底部 ⌂ 按钮随时回主屏。
 
-### Features
+## 功能
 
- - Updatable: Replace [`build.gradle`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/build.gradle) with a newer version
- - Optional API artifact (.jar)
- - Optional version replacement in Java files
- - Optional shadowing of dependencies
- - Simplified setup of Mixin and example
- - Scala support (add sources under `src/main/scala/` instead of `src/main/java/`)
- - Optional named developer account for consistent player progression during testing
- - Boilerplate forge mod as starting point
- - Improved warnings for pitfalls
- - Git Tags integration for versioning
- - [Jitpack](https://jitpack.io) CI
- - GitHub CI:
-   - Releasing your artifacts on new tags pushed. Push git tag named after version (e.g. 1.0.0) which will trigger a release of artifacts with according names.
-   - Running smoke test for server startup. On any server crash occurring workflow will fail and print the crash log.
+| App | 说明 |
+| --- | --- |
+| 🕐 时钟 | 大号世界时间显示，跟着状态栏一起走 |
+| ☀️ 天气 | 当前生物群系、降雨/雷暴、昼夜状态 |
+| 📝 便签 | 随手记点东西，存 `.minecraft/mcphone/notes/`（跨存档），支持新建/编辑/删除 |
+| 📦 末影箱 | 点图标直达：关掉手机直接打开你的末影箱，与原版完全互通 |
+| 🌀 传送 | 内置传送，**不需要背包放传送宝石**。点击图标进传送点列表：绑定当前位置（也可 Shift+点击图标快速绑定）、一键传送（支持跨维度）、重命名、删除。传送点存在手机 NBT 里 |
+| 📡 ME终端 | 直连 AE2。背包里有**通用无线终端**时自动换手打开它的完整形态，关界面自动换回；没有时打开手机内置的物品终端（电力免费）。绑定方式：潜行 + 持手机右击 ME 安全站 |
+| 📷 相机 | 取景框 + 按键截图。默认 **C** 拍照、**P** 退回手机，可改键。照片只含世界画面——HUD、小地图、热栏、准星统统不进照片 |
+| 🖼 相册 | 缩略图网格、大图查看、删除、一键设为壁纸。照片存 `.minecraft/mcphone/photos/`（**跨存档共享**），你也可以手动把 PNG 丢进这个文件夹，相册直接能读 |
+| ⚙️ 设置 | 设备命名、重置壁纸，以及**界面大小**（50–150%）与**字体大小**（50–500%）滑条——拖完松手生效，适配高分辨率大屏 |
+| 🗂 应用管理 | 每 App 一行：点击开/关（重开手机生效），↑/↓ 调整主屏图标顺序，顺序持久化 |
 
-### Files
- - [`build.gradle`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/build.gradle): This is the core script of the build process. You should not need to tamper with it, unless you are trying to accomplish something out of the ordinary. __Do not touch this file! You will make a future update near impossible if you do so!__
- - [`gradle.properties`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/gradle.properties): The core configuration file. It includes
- - [`dependencies.gradle[.kts]`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/dependencies.gradle): Add your mod's dependencies in this file. This is separate from the main build script, so you may replace the [`build.gradle`](https://github.com/SinTh0r4s/ExampleMod1.7.10/blob/main/build.gradle) if an update is available.
- - [`repositories.gradle[.kts]`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/repositories.gradle): Add your dependencies' repositories. This is separate from the main build script, so you may replace the [`build.gradle`](https://github.com/SinTh0r4s/ExampleMod1.7.10/blob/main/build.gradle) if an update is available.
- - `addon.gradle[.kts]`: Any additional build logic. This is separate from the main build script, so you may replace the [`build.gradle`](https://github.com/SinTh0r4s/ExampleMod1.7.10/blob/main/build.gradle) if an update is available. See [Advanced](#advanced) for more details.
- - [`jitpack.yml`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/jitpack.yml): Ensures that your mod is available as import over [Jitpack](https://jitpack.io).
- - [`.github/workflows/gradle.yml`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/.github/workflows/gradle.yml): A simple CI script that will build your mod any time it is pushed to `master` or `main` and publish the result as release in your repository. This feature is free with GitHub if your repository is public.
+## 存储位置
 
-### Forge's Access Transformers
+| 内容 | 路径 |
+| --- | --- |
+| 照片 / 壁纸 | `.minecraft/mcphone/photos/`（把 PNG 放进来相册就能读） |
+| 便签 | `.minecraft/mcphone/notes/` |
+| 手机设置（缩放/图标顺序/App 开关） | `.minecraft/mcphone/settings.properties` |
+| 附属 App 配置 | `.minecraft/mcphone/appdata/<appId>.properties` |
 
-You may activate Forge's Access Transformers by defining a configuration file in `gradle.properties`.
+以上全部**跨存档共享**（客户端本地）。
 
-Check out the [`example-access-transformers`](https://github.com/GTNewHorizons/ExampleMod1.7.10/tree/example-access-transformers) branch for a working example!
+## 给附属开发者
 
-> [!WARNING]
-> Access Transformers are bugged and will deny you any sources for the decompiled Minecraft! Your development environment will still work, but you might face some inconveniences. For example, IntelliJ will not permit searches in dependencies without attached sources.
+MCphone 带一套基于场景 UI 的 App 扩展接口：继承 `PhoneAppBase`、用 `PhoneWidgets` 搭页面、配置落在 `PhoneAppConfig`，几十行就是一个能用的 App。详见 **[docs/addon-api.md](docs/addon-api.md)**。
 
-### Mixins
+注册方式：代码 `PhoneApi.register(...)`，或 jar 内 `META-INF/services` 自动发现。
 
-[Mixins](https://github.com/SpongePowered/Mixin) are used to modify vanilla or mod/library code during runtime without having to edit, recompile, and redistribute the original code. For example, mixins can change a hardcoded value, redirect a method call, inject additional code, access private fields/methods, make a class implement your interface, and more. Mixins are an advanced feature which most normal mods will not require.
+## 致谢
 
-Documentation about Mixin features can be found here: [Mixin Wiki](https://github.com/SpongePowered/Mixin/wiki) and [MixinExtras Wiki](https://github.com/LlamaLad7/MixinExtras/wiki)
+- **[november521](https://github.com/november521)** —— MCphone 的原作者，一切从这里开始：[november521/mcphone](https://github.com/november521/mcphone)
+- **[skyc10](https://github.com/skyc10)** —— 1.21.1 NeoForge 版本的作者，本移植分支的直接上游：[skyc10/mcphone](https://github.com/skyc10/mcphone)
+- **[QuanhuZeYu](https://github.com/QuanhuZeYu)** —— [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) 的作者，GTNH 上难得的现代场景 UI 库（LGPL-3.0，本 mod 以依赖方式使用）
 
-There are many examples of mixins in these mods: [Hodgepodge](https://github.com/GTNewHorizons/Hodgepodge) and [Angelica](https://github.com/GTNewHorizons/Angelica)
+没有前两者的设计，就没有这个 GTNH 版本。感谢原作者的脑洞与代码。
 
-To enable Mixins in your project, follow one of the example commits:
-- use [normal mixins](https://github.com/GTNewHorizons/ExampleMod1.7.10/commit/beba55615fa8337b7639f0d5b18db6cc8d4826be) for basic and quick registration
-- use [GTNH IMixins](https://github.com/GTNewHorizons/ExampleMod1.7.10/commit/055cd4f18765a421a86c706f53b62116988297e3) (recommended) for the same thing as below, but in a less verbose and more unified manner using the IMixins api
-- use [GTNH Early/Late mixins](https://github.com/GTNewHorizons/ExampleMod1.7.10/commit/c4df59d92164775b69451f3e690239e93d1fc979) to have full control over the registration logic and check for presence of other mods during runtime to load your mixins
+## 许可
 
-The extra required dependencies are handled automatically after mixins are enabled.
-
-### Advanced
-
-If your project requires custom gradle commands you may add a `addon.gradle[.kts]` to your project. It will be added automatically to the build script. Although we recommend against it, it is sometimes required. When in doubt, feel free to ask us about it. You may break future updates of this build system!
-If you need access to properties modified later in the buildscript, you can also use a `addon.late.gradle[.kts]`.
-For local tweaks that you don't want to commit to Git, like adding extra JVM arguments for testing, use `addon[.late].local.gradle[.kts]`.
-
-### Feedback wanted
-
-If you tried out this build script we would love to head your opinion! Is there any feature missing for you? Did something not work? Please open an issue and we will try to resolve it asap!
-
-Happy modding,\
-[SinTh0r4s](https://github.com/SinTh0r4s), [TheElan](https://github.com/TheElan) and [basdxz](https://github.com/basdxz)
+沿用原项目的许可；Qz-UILib 为 LGPL-3.0，以独立模组依赖使用，未修改其源码打包。
