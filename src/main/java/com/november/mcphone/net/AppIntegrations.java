@@ -226,29 +226,32 @@ public final class AppIntegrations {
     private static void ensureSwapTickHook() {
         if (swapTickHookRegistered) return;
         swapTickHookRegistered = true;
-        cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new Object() {
+        cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new HandSwapTickHook());
+    }
 
-            @cpw.mods.fml.common.eventhandler.SubscribeEvent
-            public void onTick(cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent event) {
-                if (event.phase != cpw.mods.fml.common.gameevent.TickEvent.Phase.END) return;
-                for (HandSwap swap : RESTORES) {
-                    EntityPlayerMP pl = findOnlinePlayer(swap.player);
-                    if (pl == null) continue;
-                    // 终端 GUI 已关闭（容器回到玩家背包容器）→ 换回原物品。
-                    if (pl.openContainer == pl.inventoryContainer) {
-                        RESTORES.remove(swap);
-                        ItemStack inHand = pl.inventory.mainInventory[swap.heldSlot];
-                        if (inHand != null && inHand.getItem() == ItemPhone.INSTANCE) {
-                            return; // 已经换回过
-                        }
-                        ItemStack term = pl.inventory.mainInventory[swap.heldSlot];
-                        pl.inventory.mainInventory[swap.heldSlot] = swap.original;
-                        pl.inventory.mainInventory[swap.termSlot] = term;
-                        pl.inventory.markDirty();
+    /** 必须是 public 具名静态类：FML ASM 事件代理跨类加载器调用，匿名/包私有类会抛 IllegalAccessError。 */
+    public static final class HandSwapTickHook {
+
+        @cpw.mods.fml.common.eventhandler.SubscribeEvent
+        public void onTick(cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent event) {
+            if (event.phase != cpw.mods.fml.common.gameevent.TickEvent.Phase.END) return;
+            for (HandSwap swap : RESTORES) {
+                EntityPlayerMP pl = findOnlinePlayer(swap.player);
+                if (pl == null) continue;
+                // 终端 GUI 已关闭（容器回到玩家背包容器）→ 换回原物品。
+                if (pl.openContainer == pl.inventoryContainer) {
+                    RESTORES.remove(swap);
+                    ItemStack inHand = pl.inventory.mainInventory[swap.heldSlot];
+                    if (inHand != null && inHand.getItem() == ItemPhone.INSTANCE) {
+                        return; // 已经换回过
                     }
+                    ItemStack term = pl.inventory.mainInventory[swap.heldSlot];
+                    pl.inventory.mainInventory[swap.heldSlot] = swap.original;
+                    pl.inventory.mainInventory[swap.termSlot] = term;
+                    pl.inventory.markDirty();
                 }
             }
-        });
+        }
     }
 
     private static EntityPlayerMP findOnlinePlayer(String name) {
@@ -379,27 +382,30 @@ public final class AppIntegrations {
         PENDING.add(new PendingTeleport(player.getCommandSenderName(), w));
         if (!tickHookRegistered) {
             tickHookRegistered = true;
-            cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new Object() {
+            cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new CrossDimTeleportHook());
+        }
+    }
 
-                @cpw.mods.fml.common.eventhandler.SubscribeEvent
-                public void onTick(cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent event) {
-                    if (event.phase != cpw.mods.fml.common.gameevent.TickEvent.Phase.END) return;
-                    for (PendingTeleport p : PENDING) {
-                        PENDING.remove(p);
-                        EntityPlayerMP pl = p.resolve();
-                        if (pl == null) continue;
-                        if (pl.dimension != p.wp.dim) {
-                            pl.travelToDimension(p.wp.dim);
-                        }
-                        pl.setPositionAndUpdate(p.wp.x, p.wp.y, p.wp.z);
-                        pl.rotationYaw = p.wp.yaw;
-                        pl.rotationPitch = p.wp.pitch;
-                        pl.addChatMessage(new ChatComponentText("§7[MCphone] §a传送完成 [" + p.wp.name + "]："
-                            + fmt(p.wp.x) + ", " + fmt(p.wp.y) + ", " + fmt(p.wp.z)
-                            + "（维度 " + pl.dimension + "）"));
-                    }
+    /** 必须是 public 具名静态类：FML ASM 事件代理跨类加载器调用，匿名/包私有类会抛 IllegalAccessError。 */
+    public static final class CrossDimTeleportHook {
+
+        @cpw.mods.fml.common.eventhandler.SubscribeEvent
+        public void onTick(cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent event) {
+            if (event.phase != cpw.mods.fml.common.gameevent.TickEvent.Phase.END) return;
+            for (PendingTeleport p : PENDING) {
+                PENDING.remove(p);
+                EntityPlayerMP pl = p.resolve();
+                if (pl == null) continue;
+                if (pl.dimension != p.wp.dim) {
+                    pl.travelToDimension(p.wp.dim);
                 }
-            });
+                pl.setPositionAndUpdate(p.wp.x, p.wp.y, p.wp.z);
+                pl.rotationYaw = p.wp.yaw;
+                pl.rotationPitch = p.wp.pitch;
+                pl.addChatMessage(new ChatComponentText("§7[MCphone] §a传送完成 [" + p.wp.name + "]："
+                    + fmt(p.wp.x) + ", " + fmt(p.wp.y) + ", " + fmt(p.wp.z)
+                    + "（维度 " + pl.dimension + "）"));
+            }
         }
     }
 
