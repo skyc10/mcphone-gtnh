@@ -26,6 +26,7 @@ import club.heiqi.uilib.ui.scene.runtime.MountHandle;
 
 import com.november.mcphone.api.IPhoneApp;
 import com.november.mcphone.api.PhoneApi;
+import com.november.mcphone.api.PhoneWidgets;
 import com.november.mcphone.client.NotesStore;
 import com.november.mcphone.client.PhoneCanvas;
 import com.november.mcphone.client.PhotoStore;
@@ -102,11 +103,8 @@ public final class ScenePages {
     }
 
     private static SceneNode mountPrimaryButton(PhoneUi ui, SceneNode parent, String label, Runnable onClick) {
-        SceneButton.Props props = new SceneButton.Props(
-            Signal.create(label), Signal.create(Boolean.TRUE), onClick, club.heiqi.uilib.ui.scene.control.SceneButtonVariant.PRIMARY);
-        SceneNode btn = ui.runtime().mount(parent, SceneButton.create(ui.runtime(), props)).getRoot();
-        btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
-        return btn;
+        // 与其它按钮统一走自绘控件（旧实现用 Qz SceneButton，字号固定 16 不随设置缩放）。
+        return PhoneWidgets.primaryButton(ui, parent, label, onClick);
     }
 
     private static SceneNode spacer() {

@@ -22,22 +22,23 @@ public final class ForceExitWatchdog {
 
     private ForceExitWatchdog() {}
 
+    private static File baseDir;
+
     public static void register() {
+        // 游戏运行期捕获目录：关闭阶段不可再调 Minecraft API。
+        baseDir = PhoneCanvas.baseDir();
+        // 钩子线程自身同步执行：关闭钩子线程由 JVM 保证 Join，守护子线程会在关闭早期被杀。
         Runtime.getRuntime().addShutdownHook(new Thread(ForceExitWatchdog::run, "mcphone-exit-watchdog"));
     }
 
     private static void run() {
-        Thread watchdog = new Thread(() -> {
-            sleep(8000);
-            dumpThreads("8s");
-            sleep(7000);
-            System.err.println("[mcphone] JVM shutdown not finished 15s after quit — forcing halt "
-                + "(see mcphone/shutdown-dump.txt for the blocking thread)");
-            dumpThreads("15s");
-            Runtime.getRuntime().halt(0);
-        }, "mcphone-exit-watchdog-inner");
-        watchdog.setDaemon(true);
-        watchdog.start();
+        sleep(8000);
+        dumpThreads("8s");
+        sleep(7000);
+        System.err.println("[mcphone] JVM shutdown not finished 15s after quit — forcing halt "
+            + "(see mcphone/shutdown-dump.txt for the blocking thread)");
+        dumpThreads("15s");
+        Runtime.getRuntime().halt(0);
     }
 
     private static void sleep(long ms) {
@@ -50,7 +51,7 @@ public final class ForceExitWatchdog {
 
     private static void dumpThreads(String phase) {
         try {
-            File out = new File(PhoneCanvas.baseDir(), "shutdown-dump.txt");
+            File out = new File(baseDir, "shutdown-dump.txt");
             try (java.io.PrintWriter w = new java.io.PrintWriter(
                     new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8))) {
                 w.println("MCphone shutdown thread dump @ " + phase + " after quit");

@@ -25,6 +25,8 @@ public final class ClientHooks {
     /** WaypointSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
     public static volatile java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> pendingWaypointSync;
 
+    private static String lastAe2GuiLogged;
+
     private static boolean cameraMode;
 
     private ClientHooks() {}
@@ -81,6 +83,16 @@ public final class ClientHooks {
         }
         // 延迟关屏（点击回调里 closePhone 的落地时机）。
         com.november.mcphone.client.scene.PhoneUi.flushPendingClose();
+        // 诊断：记录 ae2/ae2fc 终端 GUI 打开时的客户端界面类（排查渲染异常）。
+        if (mc.currentScreen != null) {
+            String cls = mc.currentScreen.getClass().getName();
+            if ((cls.contains("glodblock") || cls.contains("appeng")) && !cls.equals(lastAe2GuiLogged)) {
+                lastAe2GuiLogged = cls;
+                System.out.println("[mcphone] client terminal GUI opened: " + cls);
+            }
+        } else {
+            lastAe2GuiLogged = null;
+        }
         // 服务端→客户端传送点同步（netty 线程缓存，主线程应用）。
         java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> sync = pendingWaypointSync;
         if (sync != null) {

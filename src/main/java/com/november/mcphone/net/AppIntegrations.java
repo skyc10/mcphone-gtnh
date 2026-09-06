@@ -176,12 +176,18 @@ public final class AppIntegrations {
                 // GUI 打开路径，背景/页签渲染正常）。注册表路由会用错误的 GUI 配对导致缺背景。
                 terminal.getItem()
                     .onItemRightClick(player.inventory.mainInventory[heldSlot], player.worldObj, player);
+                System.out.println("[mcphone] ME open (real terminal): item="
+                    + terminal.getItem().getClass().getName()
+                    + " container=" + player.openContainer.getClass().getName()
+                    + " heldSlot=" + heldSlot);
                 return;
             }
             // 兜底：手机内置基础终端（物品终端）
             wireless.getClass()
                 .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
                 .invoke(wireless, phone, player.worldObj, player);
+            System.out.println("[mcphone] ME open (built-in): container="
+                + player.openContainer.getClass().getName());
             player.addChatMessage(new ChatComponentText(
                 "§7[MCphone] §7已打开手机内置终端（物品终端）。背包放一个通用无线终端可获得完整功能。"));
         } catch (Throwable t) {
