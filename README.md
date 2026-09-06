@@ -64,6 +64,14 @@ MCphone 带一套基于场景 UI 的 App 扩展接口：继承 `PhoneAppBase`、
 
 注册方式：代码 `PhoneApi.register(...)`，或 jar 内 `META-INF/services` 自动发现。
 
+## 附属模组
+
+基于上述接口的附属：
+
+| 附属 | 说明 |
+| --- | --- |
+| [mcphone-addon-browser](https://github.com/skyc10/mcphone-addon-browser) | 🌐 **浏览器**：点击「览」图标直接打开 16:9 的全屏虚拟浏览器（约占游戏窗口 80%），由 MCEF/CEF 离屏渲染真实网页，不放置任何方块；默认主页 Bing，自带「GTNH 中文 Wiki」书签与浏览历史（最近 20 条）。依赖 MCEF（真实浏览器模式）。退出游戏时若 CEF 清理挂死会自动强制结束进程 |
+
 ## 致谢
 
 - **[november521](https://github.com/november521)** —— MCphone 的原作者，一切从这里开始：[november521/mcphone](https://github.com/november521/mcphone)（本仓库即其 fork 的 GTNH 移植）
