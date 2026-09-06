@@ -2,7 +2,7 @@
 
 把一部能用的智能手机塞进 GTNH —— 拍照、翻相册、换壁纸、记便签、多传送点传送、直连 AE2 通用无线终端，还能给自己那一部手机起个名。
 
-> **这是什么**：[november521/mcphone](https://github.com/november521/mcphone)（原版）→ [skyc10/mcphone](https://github.com/skyc10/mcphone)（1.21.1 NeoForge 版）的 **GTNH 2.9 移植分支**。
+> **这是什么**：[november521/mcphone](https://github.com/november521/mcphone)（原版，主线为 Minecraft 1.21.1 + NeoForge）的 fork 的 **GTNH 2.9 移植分支**。
 > 目标环境：**GTNH 2.9.0-beta-3**（Minecraft 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify）。
 > 界面层整体重写在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) 场景 UI 上（原生分辨率渲染，带现代字体渲染器）。
 
@@ -14,12 +14,7 @@
 | --- | --- |
 | [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.8+） | **必需前置**。GTNH 专用的现代场景 UI 库，手机的整个界面都跑在它上面。仓库里不发布构建产物时，可从本项目 Release 一起下载 |
 
-**可选依赖**（装了多点东西，不装一切照常）：
-
-| 模组 | 装了会怎样 |
-| --- | --- |
-| [AE2](https://github.com/AppliedEnergistics/Applied-Energistics-2)（GTNH rv3 fork） | ME 终端 App 可用：潜行+持手机右击 ME 安全站绑定后，点图标直接打开终端（电力免费） |
-| [ae2fc](https://www.curseforge.com/minecraft/mc-mods/ae2-fluid-crafting) | 背包里放一个**通用无线终端**，ME App 会自动换手打开它的完整形态（物品/流体/样板/请求/接口），关界面自动换回 |
+**联动模组**：ME 终端 App 依赖 **AE2** 与 **ae2fc**（通用无线终端）——这两者 GTNH 整合包自带，无需额外安装。装了它们的 GTNH 里，手机可以潜行+右击 ME 安全站完成绑定，点图标直接打开通用无线终端的完整形态。
 
 ---
 
@@ -71,11 +66,10 @@ MCphone 带一套基于场景 UI 的 App 扩展接口：继承 `PhoneAppBase`、
 
 ## 致谢
 
-- **[november521](https://github.com/november521)** —— MCphone 的原作者，一切从这里开始：[november521/mcphone](https://github.com/november521/mcphone)
-- **[skyc10](https://github.com/skyc10)** —— 1.21.1 NeoForge 版本的作者，本移植分支的直接上游：[skyc10/mcphone](https://github.com/skyc10/mcphone)
+- **[november521](https://github.com/november521)** —— MCphone 的原作者，一切从这里开始：[november521/mcphone](https://github.com/november521/mcphone)（本仓库即其 fork 的 GTNH 移植）
 - **[QuanhuZeYu](https://github.com/QuanhuZeYu)** —— [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) 的作者，GTNH 上难得的现代场景 UI 库（LGPL-3.0，本 mod 以依赖方式使用）
 
-没有前两者的设计，就没有这个 GTNH 版本。感谢原作者的脑洞与代码。
+没有原作者的设计与代码，就没有这个 GTNH 版本。感谢。
 
 ## 许可
 
