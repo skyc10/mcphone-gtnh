@@ -74,21 +74,22 @@ public final class CameraHandler {
         int len = 24;
         int c = 0xFFFFFFFF;
         // 四角
-        UiHelper.rect(m, m, len, 2, c);
-        UiHelper.rect(m, m, 2, len, c);
-        UiHelper.rect(w - m - len, m, len, 2, c);
-        UiHelper.rect(w - m - 2, m, 2, len, c);
-        UiHelper.rect(m, h - m - 2, len, 2, c);
-        UiHelper.rect(m, h - m - len, 2, len, c);
-        UiHelper.rect(w - m - len, h - m - 2, len, 2, c);
-        UiHelper.rect(w - m - 2, h - m - len, 2, len, c);
+        net.minecraft.client.gui.Gui.drawRect(m, m, m + len, m + 2, c);
+        net.minecraft.client.gui.Gui.drawRect(m, m, m + 2, m + len, c);
+        net.minecraft.client.gui.Gui.drawRect(w - m - len, m, w - m, m + 2, c);
+        net.minecraft.client.gui.Gui.drawRect(w - m - 2, m, w - m, m + len, c);
+        net.minecraft.client.gui.Gui.drawRect(m, h - m - 2, m + len, h - m, c);
+        net.minecraft.client.gui.Gui.drawRect(m, h - m - len, m + 2, h - m, c);
+        net.minecraft.client.gui.Gui.drawRect(w - m - len, h - m - 2, w - m, h - m, c);
+        net.minecraft.client.gui.Gui.drawRect(w - m - 2, h - m - len, w - m, h - m, c);
         // 中心点
-        UiHelper.rect(w / 2 - 1, h / 2 - 1, 2, 2, c);
-        String hint = PhoneGui.tr("msg.mcphone.camera_hint");
-        mc.fontRenderer.drawStringWithShadow(
-            hint,
-            (int) (w / 2F - mc.fontRenderer.getStringWidth(hint) / 2F),
-            h - m + 6,
-            0xFFFFFFCC);
+        net.minecraft.client.gui.Gui.drawRect(w / 2 - 1, h / 2 - 1, w / 2 + 1, h / 2 + 1, c);
+        // 提示条：热栏（底部 22px）上方，带半透明底避免被场景吃掉可读性。
+        String hint = net.minecraft.util.StatCollector.translateToLocal("msg.mcphone.camera_hint");
+        int tw = mc.fontRenderer.getStringWidth(hint);
+        int stripH = 12;
+        int stripY = h - 22 - stripH - 4;
+        net.minecraft.client.gui.Gui.drawRect(w / 2 - tw / 2 - 5, stripY, w / 2 + tw / 2 + 5, stripY + stripH, 0x88000000);
+        mc.fontRenderer.drawStringWithShadow(hint, (int) (w / 2F - tw / 2F), stripY + 2, 0xFFFFFFCC);
     }
 }

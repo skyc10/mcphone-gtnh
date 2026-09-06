@@ -48,7 +48,8 @@ public final class ClientHooks {
             if (mc.currentScreen == null && mc.thePlayer != null) {
                 ItemStack phone = findPhone(mc);
                 if (phone != null) {
-                    mc.displayGuiScreen(new PhoneGui(phone));
+                    mc.displayGuiScreen(new com.november.mcphone.client.scene.PhoneScreen(
+                        new com.november.mcphone.client.scene.PhoneUi(phone)));
                 } else {
                     mc.thePlayer.addChatMessage(new net.minecraft.util.ChatComponentText(
                         StatCollector.translateToLocal("msg.mcphone.nophone")));
@@ -65,6 +66,10 @@ public final class ClientHooks {
         if (event.phase != TickEvent.Phase.END) return;
         Minecraft mc = Minecraft.getMinecraft();
         if (cameraMode && mc.thePlayer == null) setCameraMode(false);
+        // 手机打开时驱动状态栏/时钟页的世界时钟。
+        if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
+            com.november.mcphone.client.scene.PhoneUi.tickClock();
+        }
     }
 
     public static boolean isCameraMode() {

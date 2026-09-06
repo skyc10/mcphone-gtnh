@@ -15,7 +15,7 @@ import cpw.mods.fml.relauncher.Side;
 import io.netty.buffer.ByteBuf;
 
 /**
- * 网络通道：0=末影箱 1=AE2终端 2=传送 3=设备名。
+ * 网络通道：0=末影箱 1=AE2终端 2=传送（mode: 0=传送/1=绑定） 3=设备名。
  */
 public final class NetworkHandler {
 
@@ -81,12 +81,7 @@ public final class NetworkHandler {
             public IMessage onMessage(OpenAe2 msg, MessageContext ctx) {
                 runOnServer(
                     ctx,
-                    () -> {
-                        String err = AppIntegrations.openAe2Terminal(ctx.getServerHandler().playerEntity);
-                        if (err != null) {
-                            ctx.getServerHandler().playerEntity.addChatMessage(new net.minecraft.util.ChatComponentText(err));
-                        }
-                    });
+                    () -> AppIntegrations.openAe2Terminal(ctx.getServerHandler().playerEntity));
                 return null;
             }
         }
@@ -94,19 +89,32 @@ public final class NetworkHandler {
 
     public static class Teleport implements IMessage {
 
+        /** 0 = 传送到绑定点；1 = 绑定当前位置。 */
+        public int mode;
+
         public Teleport() {}
 
-        @Override
-        public void fromBytes(ByteBuf buf) {}
+        public Teleport(int mode) {
+            this.mode = mode;
+        }
 
         @Override
-        public void toBytes(ByteBuf buf) {}
+        public void fromBytes(ByteBuf buf) {
+            mode = buf.readByte();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(mode);
+        }
 
         public static class Handler implements IMessageHandler<Teleport, IMessage> {
 
             @Override
             public IMessage onMessage(Teleport msg, MessageContext ctx) {
-                runOnServer(ctx, () -> AppIntegrations.teleportViaCharm(ctx.getServerHandler().playerEntity));
+                runOnServer(
+                    ctx,
+                    () -> AppIntegrations.teleportViaPhone(ctx.getServerHandler().playerEntity, msg.mode));
                 return null;
             }
         }

@@ -24,7 +24,8 @@ import cpw.mods.fml.common.registry.GameRegistry;
  * 第三方 App 注册见 {@link PhoneApi}（docs/addon-api.md）。
  */
 @Mod(modid = "mcphone", name = "MCphone", version = Tags.VERSION,
-     acceptedMinecraftVersions = "[1.7.10]")
+     acceptedMinecraftVersions = "[1.7.10]",
+     dependencies = "required-after:qz_uilib@[4.8,)")
 public class MCphone {
 
     public static final String MODID = "mcphone";
@@ -68,5 +69,7 @@ public class MCphone {
     @Mod.EventHandler
     public void postInit(FMLPostInitializationEvent event) {
         proxy.postInitApps();
+        // AE2 在场时把手机注册为无线终端（反射，无编译期依赖）。
+        com.november.mcphone.net.AppIntegrations.registerAe2WirelessHandler();
     }
 }
