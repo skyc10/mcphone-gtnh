@@ -5,6 +5,7 @@ import net.minecraft.item.ItemStack;
 
 import com.november.mcphone.api.PhoneApi;
 import com.november.mcphone.client.ClientHooks;
+import com.november.mcphone.client.ForceExitWatchdog;
 import com.november.mcphone.client.scene.PhoneScreen;
 import com.november.mcphone.client.scene.PhoneUi;
 
@@ -17,6 +18,8 @@ public class ClientProxy extends CommonProxy {
     @SideOnly(Side.CLIENT)
     public void initClientHooks() {
         ClientHooks.preInit();
+        // 退出看门狗：shutdown 钩子阶段挂起（如 MCEF/JCEF 关闭阻塞）时 15s 后强制结束。
+        ForceExitWatchdog.register();
     }
 
     @Override
