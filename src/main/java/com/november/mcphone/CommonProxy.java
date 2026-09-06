@@ -2,26 +2,22 @@ package com.november.mcphone;
 
 import net.minecraft.item.ItemStack;
 
-import com.november.mcphone.api.PhoneApi;
-
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
-
+/**
+ * 服务端代理。注意：这里的方法都不能标 @SideOnly(CLIENT)——GTNH 构建链在专用
+ * 服务端会裁掉 SideOnly(CLIENT) 成员，导致 MCphone.init 调用时 NoSuchMethodError
+ * （CI 服务器 90 秒试跑崩溃的根因）。真正的客户端逻辑在 ClientProxy 覆写里。
+ */
 public class CommonProxy {
 
-    /** 服务端无 App 概念，仅客户端在 preInit 后注册内建 App。 */
+    /** 服务端无按键/HUD 钩子。 */
     public void initClientHooks() {}
 
-    /** 客户端打开手机主界面。 */
+    /** 服务端无 GUI。 */
     public void openPhoneGui(ItemStack phone) {}
 
-    @SideOnly(Side.CLIENT)
-    public void initApps() {
-        PhoneApi.registerBuiltins();
-    }
+    /** 服务端无 App 注册（ClientProxy 覆写做真实注册）。 */
+    public void initApps() {}
 
-    @SideOnly(Side.CLIENT)
-    public void postInitApps() {
-        PhoneApi.loadExternalApps();
-    }
+    /** 服务端无外部 App 扫描。 */
+    public void postInitApps() {}
 }
