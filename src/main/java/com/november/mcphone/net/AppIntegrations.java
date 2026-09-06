@@ -40,6 +40,8 @@ public final class AppIntegrations {
     // ===================== AE2 无线终端 =====================
 
     private static final String AE2_SECURITY_TILE = "appeng.tile.misc.TileSecurity";
+    private static final String UWT_ITEM_CLASS =
+        "com.glodblock.github.common.item.ItemWirelessUltraTerminal";
     private static volatile Object ae2WirelessRegistry;
 
     /** postInit 调用：AE2 在场时把手机注册为无线终端。 */
@@ -64,7 +66,6 @@ public final class AppIntegrations {
         } catch (Throwable t) {
             System.err.println("[mcphone] AE2 wireless registration failed: " + t);
         }
-    }
 
     /** 手机作为无线终端的 handler 语义（反射调用）。 */
     private static Object invokeHandler(Method method, Object[] args) throws Exception {
@@ -129,9 +130,10 @@ public final class AppIntegrations {
     }
 
     /**
-     * 打开手机上的 ME 终端：只走 ae2fc 通用无线终端（UWT）。
-     * 虚拟栈拷贝手机绑定密钥（AE2 标准 NBT 键 "encryptionKey"）、塞满 AE 电力、
-     * 放入无限增幅卡，经 AE2 官方路由 openWirelessTerminalGui 打开完整 GUI。
+     * 打开手机上的 ME 终端：
+     * 1. 背包里有真无线终端（通用无线终端/WCT/基础终端等）→ 自动换到手上，
+     *    走 AE2 官方路由打开它的完整 UI，关闭界面后自动换回原物品；
+     * 2. 背包里没有终端 → 打开手机内置基础终端（物品终端）。
      */
     public static void openAe2Terminal(EntityPlayerMP player) {
         Object wireless = ae2WirelessRegistry;
@@ -150,58 +152,118 @@ public final class AppIntegrations {
                 "§7[MCphone] §e尚未绑定：请潜行 + 持手机右击 ME 安全站完成绑定。"));
             return;
         }
-        Item uwt = findUltraTerminalItem();
-        if (uwt == null) {
-            player.addChatMessage(new ChatComponentText(
-                "§7[MCphone] §c未检测到 ae2fc 通用无线终端（AE2 Fluid Crafting）。"));
-            return;
-        }
         try {
-            ItemStack virtual = new ItemStack(uwt);
-            NBTTagCompound tag = new NBTTagCompound();
-            tag.setString("encryptionKey", key);
-            tag.setString("key", key);
-            tag.setDouble("internalCurrentPower", 1.0E9D);
-            tag.setDouble("internalMaxPower", 1.0E9D);
-            tag.setInteger("infinityBoosterCard", 1);
-            tag.setInteger("InfinityEnergyCard", 1);
-            virtual.setTagCompound(tag);
+            Method isTerm = wireless.getClass().getMethod("isWirelessTerminal", ItemStack.class);
+            // 优先找通用无线终端（UWT），其次任意已注册无线终端。
+            ItemStack terminal = findPreferredTerminal(player, isTerm, wireless);
+            if (terminal != null) {
+                int termSlot = indexOf(player, terminal);
+                int heldSlot = player.inventory.currentItem;
+                ItemStack original = player.inventory.mainInventory[heldSlot];
+                if (termSlot != heldSlot) {
+                    // 换到手上：ae2fc/AE2 的终端 GUI 从手持槽位构建宿主对象。
+                    player.inventory.mainInventory[heldSlot] = terminal;
+                    player.inventory.mainInventory[termSlot] = original;
+                    player.inventory.markDirty();
+                    RESTORES.add(new HandSwap(player.getCommandSenderName(), heldSlot, termSlot, original));
+                    ensureSwapTickHook();
+                }
+                wireless.getClass()
+                    .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
+                    .invoke(wireless, player.inventory.mainInventory[heldSlot], player.worldObj, player);
+                return;
+            }
+            // 兜底：手机内置基础终端（物品终端）
             wireless.getClass()
                 .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
-                .invoke(wireless, virtual, player.worldObj, player);
+                .invoke(wireless, phone, player.worldObj, player);
+            player.addChatMessage(new ChatComponentText(
+                "§7[MCphone] §7已打开手机内置终端（物品终端）。背包放一个通用无线终端可获得完整功能。"));
         } catch (Throwable t) {
-            player.addChatMessage(new ChatComponentText("§7[MCphone] §c打开通用无线终端失败: " + t));
+            player.addChatMessage(new ChatComponentText("§7[MCphone] §c打开 ME 终端失败: " + t));
         }
     }
 
-    // ===================== ae2fc 通用无线终端（UWT） =====================
-
-    private static final String UWT_ITEM_CLASS =
-        "com.glodblock.github.common.item.ItemWirelessUltraTerminal";
-    private static Item uwtItem;
-    private static boolean uwtResolved;
-
-    /** 懒查找 ae2fc 通用无线终端物品（未装 ae2fc 时返回 null）。 */
-    private static Item findUltraTerminalItem() {
-        if (uwtResolved) return uwtItem;
-        uwtResolved = true;
-        try {
-            Class.forName(UWT_ITEM_CLASS);
-            Iterator<Item> it = Item.itemRegistry.iterator();
-            while (it.hasNext()) {
-                Item item = it.next();
-                // 类名或注册名任一匹配（ae2fc:wireless_ultra_terminal，注册包装类可能不同）。
-                if (item.getClass().getName().equals(UWT_ITEM_CLASS)
-                    || "ae2fc:wireless_ultra_terminal".equals(Item.itemRegistry.getNameForObject(item))) {
-                    uwtItem = item;
-                    break;
-                }
-            }
-        } catch (Throwable ignored) {}
-        return uwtItem;
+    /** 优先通用无线终端（UWT 类名），其次任意 isWirelessTerminal 的背包终端。 */
+    private static ItemStack findPreferredTerminal(EntityPlayerMP player, Method isTerm, Object wireless)
+            throws Exception {
+        ItemStack uwt = null;
+        ItemStack any = null;
+        for (ItemStack st : player.inventory.mainInventory) {
+            if (st == null || st.getItem() == ItemPhone.INSTANCE) continue;
+            if (uwt == null && UWT_ITEM_CLASS.equals(st.getItem().getClass().getName())) uwt = st;
+            if (any == null && (Boolean) isTerm.invoke(wireless, st)) any = st;
+        }
+        return uwt != null ? uwt : any;
     }
 
-    /** 潜行 + 持手机右击 ME 安全站：把安全站 locatable key 写入手机 NBT。 */
+    private static int indexOf(EntityPlayerMP player, ItemStack target) {
+        ItemStack[] inv = player.inventory.mainInventory;
+        for (int i = 0; i < inv.length; i++) {
+            if (inv[i] == target) return i;
+        }
+        return player.inventory.currentItem;
+    }
+
+    // ===================== 手持槽位换回 =====================
+
+    private static final CopyOnWriteArrayList<HandSwap> RESTORES = new CopyOnWriteArrayList<>();
+    private static boolean swapTickHookRegistered;
+
+    private static final class HandSwap {
+
+        final String player;
+        final int heldSlot;
+        final int termSlot;
+        final ItemStack original;
+
+        HandSwap(String player, int heldSlot, int termSlot, ItemStack original) {
+            this.player = player;
+            this.heldSlot = heldSlot;
+            this.termSlot = termSlot;
+            this.original = original;
+        }
+    }
+
+    private static void ensureSwapTickHook() {
+        if (swapTickHookRegistered) return;
+        swapTickHookRegistered = true;
+        cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new Object() {
+
+            @cpw.mods.fml.common.eventhandler.SubscribeEvent
+            public void onTick(cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent event) {
+                if (event.phase != cpw.mods.fml.common.gameevent.TickEvent.Phase.END) return;
+                for (HandSwap swap : RESTORES) {
+                    EntityPlayerMP pl = findOnlinePlayer(swap.player);
+                    if (pl == null) continue;
+                    // 终端 GUI 已关闭（容器回到玩家背包容器）→ 换回原物品。
+                    if (pl.openContainer == pl.inventoryContainer) {
+                        RESTORES.remove(swap);
+                        if (pl.inventory.mainInventory[swap.heldSlot] != null
+                            && pl.inventory.mainInventory[swap.heldSlot].getItem() == ItemPhone.INSTANCE) {
+                            return; // 已经换回过
+                        }
+                        ItemStack term = pl.inventory.mainInventory[swap.heldSlot];
+                        pl.inventory.mainInventory[swap.heldSlot] = swap.original;
+                        pl.inventory.mainInventory[swap.termSlot] = term;
+                        pl.inventory.markDirty();
+                    }
+                }
+            }
+        });
+    }
+
+    private static EntityPlayerMP findOnlinePlayer(String name) {
+        for (Object o : cpw.mods.fml.common.FMLCommonHandler.instance()
+            .getMinecraftServerInstance().getConfigurationManager().playerEntityList) {
+            if (o instanceof EntityPlayerMP && ((EntityPlayerMP) o).getCommandSenderName().equals(name)) {
+                return (EntityPlayerMP) o;
+            }
+        }
+        return null;
+    }
+
+/** 潜行 + 持手机右击 ME 安全站：把安全站 locatable key 写入手机 NBT。 */
     public static void bindAe2SecurityStation(EntityPlayerMP player, ItemStack phone) {
         if (ae2WirelessRegistry == null) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c未检测到 AE2。"));
@@ -375,3 +437,4 @@ public final class AppIntegrations {
         return null;
     }
 }
+    }
