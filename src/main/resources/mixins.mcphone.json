@@ -1,0 +1,10 @@
+{
+  "required": false,
+  "minVersion": "0.8.5-GTNH",
+  "package": "com.november.mcphone.mixin",
+  "target": "@env(DEFAULT)",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [],
+  "client": [],
+  "server": []
+}
