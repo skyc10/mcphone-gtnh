@@ -72,6 +72,44 @@ public final class PhoneCanvas {
         return Collections.unmodifiableList(new java.util.ArrayList<>(java.util.Arrays.asList(v.split(","))));
     }
 
+    // ===================== App 图标顺序 =====================
+
+    private static final String KEY_ORDER = "appOrder";
+
+    /** 主屏图标顺序（未列出的 App 按注册顺序排在后面）。 */
+    public static java.util.List<String> getAppOrder() {
+        String v = load().getProperty(KEY_ORDER, "");
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String s : v.split(",")) {
+            if (!s.trim().isEmpty()) out.add(s.trim());
+        }
+        return out;
+    }
+
+    public static void setAppOrder(java.util.List<String> order) {
+        Properties p = load();
+        p.setProperty(KEY_ORDER, String.join(",", order));
+        save(p);
+    }
+
+    /** 交换相邻两个 App 的顺序；越界静默忽略。返回新顺序。 */
+    public static java.util.List<String> moveApp(String id, int delta) {
+        java.util.List<String> order = getAppOrder();
+        int i = order.indexOf(id);
+        if (i < 0) {
+            order.add(id);
+            i = order.size() - 1;
+        }
+        int j = i + delta;
+        if (j >= 0 && j < order.size()) {
+            String t = order.get(i);
+            order.set(i, order.get(j));
+            order.set(j, t);
+            setAppOrder(order);
+        }
+        return getAppOrder();
+    }
+
     // ===================== 显示缩放 =====================
 
     private static final String KEY_UI_SCALE = "uiScalePercent";

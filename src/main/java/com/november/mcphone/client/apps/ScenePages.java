@@ -231,7 +231,7 @@ public final class ScenePages {
             arrow.setFontSize(PhoneUi.fs(16));
             arrow.setHitTestable(false);
             row.appendChild(arrow);
-            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.post(() -> showNotesEditor(ui, slot, note)));
+            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> showNotesEditor(ui, slot, note)));
             list.appendChild(row);
         }
         slot.show(list);
@@ -320,7 +320,7 @@ public final class ScenePages {
         mountPrimaryButton(ui, list, StatCollector.translateToLocal("btn.mcphone.bind_here"),
             () -> NetworkHandler.sendToServer(new NetworkHandler.Teleport(1, -1, "")));
 
-        List<ItemPhone.Waypoint> wps = PhoneUi.waypoints();
+        List<ItemPhone.Waypoint> wps = ui.waypoints();
         if (wps.isEmpty()) {
             list.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.tp_empty")));
         }
@@ -461,7 +461,7 @@ public final class ScenePages {
                 node.setImageSource(HostImageSource.bufferedImage(img, "mcphone:" + photo.getName()));
             }
         } catch (Exception ignored) {}
-        ui.runtime().on(node, SceneEventType.CLICK, (e, ctx) -> PhoneUi.post(() -> showGalleryViewer(ui, slot, photo)));
+        ui.runtime().on(node, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> showGalleryViewer(ui, slot, photo)));
         return node;
     }
 
@@ -583,7 +583,12 @@ public final class ScenePages {
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.appmgr")));
 
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_hint")));
-        for (IPhoneApp app : PhoneApi.apps()) {
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_order_hint")));
+        java.util.List<IPhoneApp> ordered = PhoneApi.orderedApps();
+        for (int appIndex = 0; appIndex < ordered.size(); appIndex++) {
+            IPhoneApp app = ordered.get(appIndex);
+            final boolean first = appIndex == 0;
+            final boolean last = appIndex == ordered.size() - 1;
             final boolean enabled = PhoneCanvas.isAppEnabled(app.id());
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
@@ -605,14 +610,51 @@ public final class ScenePages {
             state.setFontSize(PhoneUi.fs(14));
             state.setHitTestable(false);
             row.appendChild(state);
-            // 整行可点击切换（旧行内 SceneToggle 不显示/不可点，改为此方案）。
-            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.post(() -> {
+            row.appendChild(orderButton(ui, app.id(), "↑", first ? null : -1));
+            row.appendChild(orderButton(ui, app.id(), "↓", last ? null : 1));
+            // 整行可点击切换；↑/↓ 按钮内部 stopPropagation，不会误触开关。
+            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
                 PhoneCanvas.setAppEnabled(app.id(), !PhoneCanvas.isAppEnabled(app.id()));
                 ui.rebuildPage();
             }));
             page.appendChild(row);
         }
         return page;
+    }
+
+    /**
+     * 排序小按钮（↑/↓）。delta 为 null 表示该方向不可用（置灰且不响应）；
+     * 点击 stopPropagation，避免冒泡触发整行的开关切换。
+     */
+    private static SceneNode orderButton(PhoneUi ui, String appId, String glyph, Integer delta) {
+        boolean active = delta != null;
+        SceneNode btn = SceneNode.row();
+        btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        btn.setPreferredWidth(30);
+        btn.setPreferredHeight(24);
+        btn.setCornerRadius(6);
+        btn.setBackgroundColor(active ? 0x556FB2E8 : 0x22FFFFFF);
+        btn.setMainAxisAlign(MainAxisAlign.CENTER);
+        btn.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        SceneNode g = new SceneNode();
+        g.setText(glyph);
+        g.setTextColor(active ? COL_TEXT : COL_MUTED);
+        g.setFontSize(PhoneUi.fs(14));
+        g.setHitTestable(false);
+        btn.appendChild(g);
+        if (active) {
+            final int d = delta.intValue();
+            ui.runtime().on(btn, SceneEventType.CLICK, (e, dispatch) -> {
+                dispatch.stopPropagation();
+                PhoneUi.postAction(() -> {
+                    PhoneCanvas.moveApp(appId, d);
+                    ui.rebuildPage();
+                });
+            });
+        } else {
+            btn.setHitTestable(false);
+        }
+        return btn;
     }
 
     private static String def(String s) {

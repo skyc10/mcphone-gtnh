@@ -45,7 +45,7 @@ import com.november.mcphone.core.ItemPhone;
  *       └ homeBar    (ROW：主页按钮)
  * </pre>
  */
-public class PhoneUi extends AbstractSceneHostWidget {
+public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcphone.api.PhoneContext {
 
     /** 当前打开的手机实例（时钟 tick 用）；随 dispose 清空。 */
     public static volatile PhoneUi ACTIVE;
@@ -123,7 +123,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
     /** 字体缩放变化后（设置页滑条）：重开当前页让新字号生效（延迟到分发结束）。 */
     public static void refreshFontScale() {
         fontScale = PhoneCanvas.getFontScale();
-        post(() -> {
+        postAction(() -> {
             PhoneUi ui = ACTIVE;
             if (ui != null) ui.rebuildPage();
         });
@@ -131,7 +131,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
 
     /** 界面缩放变化后：重算面板尺寸并重排当前页（延迟到分发结束）。 */
     public static void refreshUiScale() {
-        post(() -> {
+        postAction(() -> {
             PhoneUi ui = ACTIVE;
             if (ui != null) {
                 ui.uiScalePercent = PhoneCanvas.getUiScalePercent();
@@ -161,6 +161,33 @@ public class PhoneUi extends AbstractSceneHostWidget {
 
     public SceneRuntime runtime() {
         return runtime;
+    }
+
+    // ===================== PhoneContext 适配（附属 SPI） =====================
+
+    @Override
+    public int scaledFont(int size) {
+        return fs(size);
+    }
+
+    @Override
+    public String tr(String key) {
+        return net.minecraft.util.StatCollector.translateToLocal(key);
+    }
+
+    @Override
+    public Signal<String> clock() {
+        return clockSignal();
+    }
+
+    @Override
+    public void sendToServer(cpw.mods.fml.common.network.simpleimpl.IMessage msg) {
+        com.november.mcphone.net.NetworkHandler.sendToServer(msg);
+    }
+
+    @Override
+    public java.util.List<ItemPhone.Waypoint> waypoints() {
+        return clientWaypoints;
     }
 
     /** 状态栏时钟信号（页面可绑定大号时钟显示）。 */
@@ -291,7 +318,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
     }
 
     private void buildHomeGrid() {
-        List<IPhoneApp> apps = PhoneApi.visibleApps();
+        List<IPhoneApp> apps = PhoneApi.orderedVisibleApps();
         SceneNode grid = SceneNode.column();
         grid.setFillParentWidth(true);
         grid.setPadding(16);
@@ -470,7 +497,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
     private static volatile boolean pendingClose;
 
     /** 延迟到下一帧渲染开头执行（输入分发期间改树会让 Qz 路由 CME）。 */
-    public static void post(Runnable action) {
+    public static void postAction(Runnable action) {
         if (action != null) PENDING_ACTIONS.add(action);
     }
 
@@ -487,6 +514,11 @@ public class PhoneUi extends AbstractSceneHostWidget {
     }
 
     /** 关闭手机（延迟到客户端 tick）。仅当当前界面仍是手机时才关，避免误关刚打开的末影箱等容器。 */
+    @Override
+    public void post(Runnable action) {
+        postAction(action);
+    }
+
     public static void flushPendingClose() {
         if (pendingClose) {
             pendingClose = false;
@@ -500,7 +532,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
     /** 服务端同步到达（客户端 tick 主线程调用）：更新缓存并刷新传送页。 */
     public static void onWaypointSync(java.util.List<ItemPhone.Waypoint> list) {
         clientWaypoints = new java.util.ArrayList<>(list);
-        post(() -> {
+        postAction(() -> {
             PhoneUi ui = ACTIVE;
             if (ui != null && "teleport".equals(ui.currentPageId)) {
                 ui.rebuildPage();
@@ -509,7 +541,7 @@ public class PhoneUi extends AbstractSceneHostWidget {
     }
 
     /** 当前客户端已知的传送点列表（传送页渲染用）。 */
-    public static java.util.List<ItemPhone.Waypoint> waypoints() {
+    public static java.util.List<ItemPhone.Waypoint> clientWaypoints() {
         return clientWaypoints;
     }
 

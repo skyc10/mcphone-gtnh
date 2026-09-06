@@ -57,6 +57,32 @@ public final class PhoneApi {
         return out;
     }
 
+    /**
+     * 全部 App 按用户自定义顺序排列（主屏图标顺序；未在顺序表里的按注册顺序追加）。
+     * 顺序持久化在客户端 settings.properties 的 appOrder。
+     */
+    public static synchronized List<IPhoneApp> orderedApps() {
+        List<IPhoneApp> out = new ArrayList<>();
+        List<String> order = com.november.mcphone.client.PhoneCanvas.getAppOrder();
+        for (String id : order) {
+            IPhoneApp app = APPS.get(id);
+            if (app != null) out.add(app);
+        }
+        for (IPhoneApp app : APPS.values()) {
+            if (!out.contains(app)) out.add(app);
+        }
+        return out;
+    }
+
+    /** 主屏网格展示顺序：按用户自定义顺序，跳过被用户关闭的 App。 */
+    public static synchronized List<IPhoneApp> orderedVisibleApps() {
+        List<IPhoneApp> out = new ArrayList<>();
+        for (IPhoneApp app : orderedApps()) {
+            if (PhoneCanvas.isAppEnabled(app.id())) out.add(app);
+        }
+        return out;
+    }
+
     public static synchronized List<String> externalAppIds() {
         return Collections.unmodifiableList(externalIds);
     }
