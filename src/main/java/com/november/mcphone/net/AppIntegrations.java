@@ -164,11 +164,12 @@ public final class AppIntegrations {
                     player.inventory.mainInventory[termSlot] = original;
                     player.inventory.markDirty();
                     // 立即把两个槽位同步给客户端：客户端建 GUI 宿主用的是它自己手里的物品，
-                    // 不同步的话客户端看到的还是手机 → 宿主错配 → GUI 半残（无背景面板）。
+                    // 不同步的话客户端看到的还是手机 → 宿主错配 → 客户端解析成 GuiNull（半残）。
+                    // 注意 S2F 用的是容器槽位号（护甲/合成区占 0-8），必须经 inventoryContainer 映射。
                     player.playerNetServerHandler.sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(
-                        player.inventoryContainer.windowId, heldSlot, terminal));
+                        player.inventoryContainer.windowId, containerSlotFor(player, heldSlot), terminal));
                     player.playerNetServerHandler.sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(
-                        player.inventoryContainer.windowId, termSlot, original));
+                        player.inventoryContainer.windowId, containerSlotFor(player, termSlot), original));
                     RESTORES.add(new HandSwap(player.getCommandSenderName(), heldSlot, termSlot, original));
                     ensureSwapTickHook();
                 }
@@ -206,6 +207,21 @@ public final class AppIntegrations {
             if (any == null && (Boolean) isTerm.invoke(wireless, st)) any = st;
         }
         return uwt != null ? uwt : any;
+    }
+
+    /** mainInventory 索引 → inventoryContainer 容器槽位号（按 Slot 的 inventory+index 精确匹配）。 */
+    private static int containerSlotFor(EntityPlayerMP player, int invIndex) {
+        int container = invIndex;
+        int j = 0;
+        for (Object o : player.inventoryContainer.inventorySlots) {
+            net.minecraft.inventory.Slot sl = (net.minecraft.inventory.Slot) o;
+            if (sl.isSlotInInventory(player.inventory, invIndex)) {
+                container = j;
+                break;
+            }
+            j++;
+        }
+        return container;
     }
 
     private static int indexOf(EntityPlayerMP player, ItemStack target) {
@@ -262,6 +278,12 @@ public final class AppIntegrations {
                     pl.inventory.mainInventory[swap.heldSlot] = swap.original;
                     pl.inventory.mainInventory[swap.termSlot] = term;
                     pl.inventory.markDirty();
+                    pl.playerNetServerHandler.sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(
+                        pl.inventoryContainer.windowId,
+                        containerSlotFor(pl, swap.heldSlot), swap.original));
+                    pl.playerNetServerHandler.sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(
+                        pl.inventoryContainer.windowId,
+                        containerSlotFor(pl, swap.termSlot), term));
                 }
             }
         }

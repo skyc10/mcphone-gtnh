@@ -146,6 +146,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
                 ui.applyPanelSize();
                 ui.panel.setPreferredWidth(ui.panelW);
                 ui.panel.setPreferredHeight(ui.panelH);
+                ui.contentSlot.setPreferredHeight(ui.contentHeight());
                 ui.rebuildPage();
             }
         });
@@ -211,6 +212,14 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         return panelH;
     }
 
+    /** 内容区高度（面板高 - 状态栏 - 主页栏），页面/滚动容器用它做显式高度先验。 */
+    public int contentHeight() {
+        int statusH = measurer.lineHeight(fs(16)) + 20;
+        int homeH = measurer.lineHeight(fs(16)) + 12
+            + 2 * club.heiqi.uilib.ui.scene.paint.SceneChromeTokens.PAD_LG;
+        return Math.max(100, panelH - statusH - homeH);
+    }
+
     public ItemStack phoneStack() {
         return phone;
     }
@@ -272,7 +281,8 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
         contentSlot = SceneNode.column();
         contentSlot.setFillParentWidth(true);
-        contentSlot.setFlexGrow(1);
+        // 高度用显式先验而非 flexGrow：grow 求解器在内容型兄弟旁会早退（间歇性主屏空白/不可滚动的根因）。
+        contentSlot.setPreferredHeight(contentHeight());
         contentSlot.setClipChildren(true);
         // 半透明深色底板：壁纸隐约可见，文字始终可读（浅色背景问题修复）。
         contentSlot.setBackgroundColor(COL_PAGE_BG);
@@ -338,6 +348,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         grid.setGap(16);
         grid.setScrollable(true);
         grid.setClipChildren(true);
+        club.heiqi.uilib.ui.scene.runtime.SceneScrolls.attach(runtime, grid);
 
         int perRow = 3;
         int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);
