@@ -72,6 +72,25 @@ public final class PhoneCanvas {
         return Collections.unmodifiableList(new java.util.ArrayList<>(java.util.Arrays.asList(v.split(","))));
     }
 
+    // ===================== 按钮字号（独立于全局字体缩放） =====================
+
+    private static final String KEY_BUTTON_SCALE = "buttonScale";
+
+    /** 按钮字号缩放百分比（50–250），100 = 跟随全局字体缩放的基准按钮字号。 */
+    public static int getButtonScale() {
+        try {
+            return clamp(Integer.parseInt(load().getProperty(KEY_BUTTON_SCALE, "100").trim()), 50, 250);
+        } catch (NumberFormatException e) {
+            return 100;
+        }
+    }
+
+    public static void setButtonScale(int percent) {
+        Properties p = load();
+        p.setProperty(KEY_BUTTON_SCALE, String.valueOf(clamp(percent, 50, 250)));
+        save(p);
+    }
+
     // ===================== App 图标顺序 =====================
 
     private static final String KEY_ORDER = "appOrder";

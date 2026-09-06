@@ -166,9 +166,10 @@ public final class AppIntegrations {
                     RESTORES.add(new HandSwap(player.getCommandSenderName(), heldSlot, termSlot, original));
                     ensureSwapTickHook();
                 }
-                wireless.getClass()
-                    .getMethod("openWirelessTerminalGui", ItemStack.class, World.class, EntityPlayer.class)
-                    .invoke(wireless, player.inventory.mainInventory[heldSlot], player.worldObj, player);
+                // 与手持右键完全一致：调用终端自身 onItemRightClick（ae2fc/AE2 各自的
+                // GUI 打开路径，背景/页签渲染正常）。注册表路由会用错误的 GUI 配对导致缺背景。
+                terminal.getItem()
+                    .onItemRightClick(player.inventory.mainInventory[heldSlot], player.worldObj, player);
                 return;
             }
             // 兜底：手机内置基础终端（物品终端）
@@ -277,9 +278,11 @@ public final class AppIntegrations {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §7潜行右击 ME 安全站即可绑定（当前未对准方块）。"));
             return;
         }
-        TileEntity te = player.worldObj.getTileEntity(hit.blockX, hit.blockY, hit.blockZ);
-        if (te == null || !AE2_SECURITY_TILE.equals(te.getClass().getName())) {
-            player.addChatMessage(new ChatComponentText("§7[MCphone] §c对准的方块不是 ME 安全站。"));
+        // 命中方块优先，其次搜索命中点周围 3x3x3（准星打在安全站旁的线缆/面板上也能绑定）。
+        TileEntity te = findSecurityTile(player, hit.blockX, hit.blockY, hit.blockZ);
+        if (te == null) {
+            player.addChatMessage(new ChatComponentText(
+                "§7[MCphone] §c对准的方块不是 ME 安全站（需潜行 + 右击安全站本体）。"));
             return;
         }
         try {
@@ -291,6 +294,21 @@ public final class AppIntegrations {
         } catch (Throwable t) {
             player.addChatMessage(new ChatComponentText("§7[MCphone] §c绑定失败: " + t));
         }
+    }
+
+    /** 在命中方块及其周围 3x3x3 范围内找 ME 安全站 Tile。 */
+    private static TileEntity findSecurityTile(EntityPlayerMP player, int x, int y, int z) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    TileEntity te = player.worldObj.getTileEntity(x + dx, y + dy, z + dz);
+                    if (te != null && AE2_SECURITY_TILE.equals(te.getClass().getName())) {
+                        return te;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     // ===================== 内置传送（多传送点） =====================

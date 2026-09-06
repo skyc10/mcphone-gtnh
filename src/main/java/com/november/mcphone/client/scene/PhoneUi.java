@@ -129,6 +129,14 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         });
     }
 
+    /** 按钮字号缩放变化后（设置页滑条）：重开当前页生效（延迟到分发结束）。 */
+    public static void refreshButtonScale() {
+        postAction(() -> {
+            PhoneUi ui = ACTIVE;
+            if (ui != null) ui.rebuildPage();
+        });
+    }
+
     /** 界面缩放变化后：重算面板尺寸并重排当前页（延迟到分发结束）。 */
     public static void refreshUiScale() {
         postAction(() -> {
@@ -411,14 +419,9 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
     // ===================== 公共小工具 =====================
 
-    /** 挂一个小圆钮到指定容器（按钮根按内容宽排布；回调延迟到分发结束执行）。 */
+    /** 挂一个小圆钮到指定容器（自绘按钮，字号可控；回调延迟到分发结束执行）。 */
     public SceneNode mountButton(SceneNode parent, String label, Runnable onClick) {
-        SceneButton.Props props = new SceneButton.Props(
-            Signal.create(label), Signal.create(Boolean.TRUE),
-            () -> post(onClick));
-        SceneNode btn = runtime.mount(parent, SceneButton.create(runtime, props)).getRoot();
-        btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
-        return btn;
+        return com.november.mcphone.api.PhoneWidgets.button(this, parent, label, onClick);
     }
 
     /** 常规标题文本（不可命中）。 */

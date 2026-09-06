@@ -1,12 +1,11 @@
 package com.november.mcphone.api;
 
-import club.heiqi.uilib.ui.reactive.Signal;
-import club.heiqi.uilib.ui.scene.control.SceneButton;
-import club.heiqi.uilib.ui.scene.control.SceneButtonVariant;
 import club.heiqi.uilib.ui.scene.input.SceneEventType;
 import club.heiqi.uilib.ui.scene.layout.CrossAxisAlign;
 import club.heiqi.uilib.ui.scene.layout.MainAxisAlign;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
+
+import com.november.mcphone.client.PhoneCanvas;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -96,22 +95,52 @@ public final class PhoneWidgets {
         return row;
     }
 
-    /** 挂标准按钮（回调自动延迟执行）。 */
+    /** 按钮文字字号 = 全局字体缩放 x 按钮字号缩放（独立滑条）。 */
+    public static int buttonFontSize(PhoneContext ctx) {
+        return Math.max(10, Math.round(ctx.scaledFont(16) * PhoneCanvas.getButtonScale() / 100.0f));
+    }
+
+    private static final int BTN_BG = 0xFF3A414D;
+    private static final int BTN_BG_HOVER = 0xFF4A5462;
+    private static final int BTN_PRIMARY_BG = 0xFF2F5FA8;
+    private static final int BTN_PRIMARY_BG_HOVER = 0xFF3A72C4;
+
+    /** 自绘按钮（不依赖 SceneButton）：文字字号可控，悬停变色，回调自动延迟执行。 */
     public static SceneNode button(PhoneContext ctx, SceneNode parent, String label, Runnable onClick) {
-        SceneButton.Props props = new SceneButton.Props(
-            Signal.create(label), Signal.create(Boolean.TRUE), () -> ctx.post(onClick));
-        SceneNode btn = ctx.runtime().mount(parent, SceneButton.create(ctx.runtime(), props)).getRoot();
-        btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
-        return btn;
+        return mountButton(ctx, parent, label, onClick, false);
     }
 
     /** 挂主操作按钮（强调色变体）。 */
     public static SceneNode primaryButton(PhoneContext ctx, SceneNode parent, String label, Runnable onClick) {
-        SceneButton.Props props = new SceneButton.Props(
-            Signal.create(label), Signal.create(Boolean.TRUE), () -> ctx.post(onClick),
-            SceneButtonVariant.PRIMARY);
-        SceneNode btn = ctx.runtime().mount(parent, SceneButton.create(ctx.runtime(), props)).getRoot();
+        return mountButton(ctx, parent, label, onClick, true);
+    }
+
+    private static SceneNode mountButton(PhoneContext ctx, SceneNode parent, String label,
+                                         Runnable onClick, boolean primary) {
+        int normalBg = primary ? BTN_PRIMARY_BG : BTN_BG;
+        int hoverBg = primary ? BTN_PRIMARY_BG_HOVER : BTN_BG_HOVER;
+        SceneNode btn = SceneNode.row();
         btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        btn.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        btn.setMainAxisAlign(MainAxisAlign.CENTER);
+        btn.setPadding(8, 8, 8, 8);
+        btn.setCornerRadius(8);
+        btn.setBackgroundColor(normalBg);
+        btn.setBorderWidth(1);
+        btn.setBorderColor(BORDER);
+        SceneNode lbl = new SceneNode();
+        lbl.setText(label);
+        lbl.setTextColor(primary ? 0xFFFFFFFF : TEXT);
+        lbl.setFontSize(buttonFontSize(ctx));
+        lbl.setHitTestable(false);
+        btn.appendChild(lbl);
+        // 悬停变色
+        var interaction = ctx.runtime().interactionState(btn);
+        ctx.runtime().bindComputed(
+            () -> Boolean.TRUE.equals(interaction.hovered().get()) ? hoverBg : normalBg,
+            btn::setBackgroundColor);
+        ctx.runtime().on(btn, SceneEventType.CLICK, (event, dispatch) -> ctx.post(onClick));
+        parent.appendChild(btn);
         return btn;
     }
 

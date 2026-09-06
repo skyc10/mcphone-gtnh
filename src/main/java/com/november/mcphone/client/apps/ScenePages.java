@@ -258,6 +258,7 @@ public final class ScenePages {
                 SceneInputType.TEXT, titleValue::set)))
             .getRoot();
         titleInput.setFillParentWidth(true);
+        titleInput.setFontSize(PhoneUi.fs(16));
 
         club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.Result taRes =
             club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.create(ui.runtime(),
@@ -267,6 +268,7 @@ public final class ScenePages {
                     0xFF6FB2E8, 0xFFE8EDF2, 0xFF8B98A8, 0xFF666666, bodyValue::set));
         SceneNode area = taRes.root();
         area.setFillParentWidth(true);
+        area.setFontSize(PhoneUi.fs(18));
         area.setPadding(8, 8, 8, 8);
         area.setBorderWidth(1);
         area.setBorderColor(COL_BORDER);
@@ -400,6 +402,7 @@ public final class ScenePages {
                 SceneInputType.TEXT, nameValue::set)))
             .getRoot();
         input.setFillParentWidth(true);
+        input.setFontSize(PhoneUi.fs(16));
 
         mountPrimaryButton(ui, editor, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
             NetworkHandler.sendToServer(new NetworkHandler.Teleport(2, index, nameValue.get()));
@@ -526,6 +529,7 @@ public final class ScenePages {
                 SceneInputType.TEXT, nameValue::set)))
             .getRoot();
         input.setFillParentWidth(true);
+        input.setFontSize(PhoneUi.fs(16));
 
         SceneNode actions = SceneNode.row();
         actions.setFillParentWidth(true);
@@ -564,6 +568,19 @@ public final class ScenePages {
                     if (committing) {
                         PhoneCanvas.setFontScale((float) (v / 100.0));
                         PhoneUi.refreshFontScale();
+                    }
+                })));
+
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.button_scale")));
+        Signal<Double> buttonScale = Signal.create((double) PhoneCanvas.getButtonScale());
+        ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
+            new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
+                buttonScale, Signal.create(Boolean.TRUE), 50.0, 250.0, 5.0,
+                (v, committing) -> {
+                    buttonScale.set(v);
+                    if (committing) {
+                        PhoneCanvas.setButtonScale((int) Math.round(v));
+                        PhoneUi.refreshButtonScale();
                     }
                 })));
 
