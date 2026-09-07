@@ -307,10 +307,14 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         return currentPageId == null;
     }
 
-    /** 打开指定 App 页面（页面型 App）。 */
+    /** 打开指定 App 页面（页面型 App）；商店模式下未购付费 App 拦下并提示。 */
     public void openApp(String id) {
         IPhoneApp app = PhoneApi.byId(id);
         if (app == null || app.isDirectAction()) return;
+        if (!com.november.mcphone.client.StoreClient.isUnlocked(app)) {
+            toastLocked();
+            return;
+        }
         swapPage(app.id(), app.createPage(this));
     }
 
@@ -402,8 +406,10 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         }
 
         SceneNode label = new SceneNode();
-        label.setText(app.displayName());
-        label.setTextColor(COL_TEXT);
+        boolean locked = !com.november.mcphone.client.StoreClient.isUnlocked(app);
+        label.setText(app.displayName()
+            + (locked ? StatCollector.translateToLocal("label.mcphone.store_locked_tag") : ""));
+        label.setTextColor(locked ? COL_MUTED : COL_TEXT);
         label.setFontSize(fs(14));
         label.setMaxTextWidth(cellW);
         label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
@@ -418,6 +424,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     /** 图标点击：直达型立即执行（传送支持 Shift+点击绑定）；页面型 Shift+点击走 onShiftActivate。 */
     private void activate(IPhoneApp app, boolean shift) {
         post(() -> {
+            // 商店模式准入：未购付费内建 App 拦下（附属 App 恒放行，见 StoreClient）。
+            if (!com.november.mcphone.client.StoreClient.isUnlocked(app)) {
+                toastLocked();
+                return;
+            }
             if (app.isDirectAction()) {
                 app.onActivate(this, shift);
             } else if (shift) {
@@ -426,6 +437,10 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
                 openApp(app.id());
             }
         });
+    }
+
+    private void toastLocked() {
+        toast(StatCollector.translateToLocal("msg.mcphone.store_locked"));
     }
 
     // ===================== 公共小工具 =====================
@@ -556,6 +571,14 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             if (ui != null && "teleport".equals(ui.currentPageId)) {
                 ui.rebuildPage();
             }
+        });
+    }
+
+    /** 服务端已购 App 同步到达（客户端 tick 主线程调用）：重建当前页刷新锁标/商店。 */
+    public static void onStoreSync() {
+        postAction(() -> {
+            PhoneUi ui = ACTIVE;
+            if (ui != null) ui.rebuildPage();
         });
     }
 

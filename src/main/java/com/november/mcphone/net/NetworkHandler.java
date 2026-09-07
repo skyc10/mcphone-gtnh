@@ -15,7 +15,8 @@ import cpw.mods.fml.relauncher.Side;
 import io.netty.buffer.ByteBuf;
 
 /**
- * 网络通道：0=末影箱 1=AE2终端 2=传送 3=设备名 4=WaypointSync(S→C)。
+ * 网络通道：0=末影箱 1=AE2终端 2=传送 3=设备名 4=WaypointSync(S→C)
+ * 5=购买App(C→S) 6=解锁状态同步(S→C)。
  * Teleport 语义：mode 0=传送到指定传送点 1=绑定当前位置 2=重命名 3=删除。
  */
 public final class NetworkHandler {
@@ -31,6 +32,8 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(Teleport.Handler.class, Teleport.class, 2, Side.SERVER);
         INSTANCE.registerMessage(SetDeviceName.Handler.class, SetDeviceName.class, 3, Side.SERVER);
         INSTANCE.registerMessage(WaypointSync.Handler.class, WaypointSync.class, 4, Side.CLIENT);
+        INSTANCE.registerMessage(PurchaseApp.Handler.class, PurchaseApp.class, 5, Side.SERVER);
+        INSTANCE.registerMessage(UnlockSync.Handler.class, UnlockSync.class, 6, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage msg) {
@@ -240,6 +243,92 @@ public final class NetworkHandler {
                             }
                         }
                     });
+                return null;
+            }
+        }
+    }
+
+    /** 客户端 → 服务端：购买付费 App（服务端校验背包并扣物，解锁状态按存档持久化）。 */
+    public static class PurchaseApp implements IMessage {
+
+        public String appId = "";
+
+        public PurchaseApp() {}
+
+        public PurchaseApp(String appId) {
+            this.appId = appId == null ? "" : appId;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            byte[] data = new byte[buf.readableBytes()];
+            buf.readBytes(data);
+            appId = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBytes(appId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        public static class Handler implements IMessageHandler<PurchaseApp, IMessage> {
+
+            @Override
+            public IMessage onMessage(PurchaseApp msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> {
+                        String id = msg.appId == null ? "" : msg.appId.trim();
+                        // 长度上限防御伪造包；合法性（是否付费/已购）在 StoreManager 内校验。
+                        if (!id.isEmpty() && id.length() <= 64) {
+                            com.november.mcphone.store.StoreManager
+                                .handlePurchase(ctx.getServerHandler().playerEntity, id);
+                        }
+                    });
+                return null;
+            }
+        }
+    }
+
+    /** 服务端 → 客户端：当前玩家已购 App 全量同步（登录/购买后）。 */
+    public static class UnlockSync implements IMessage {
+
+        public java.util.List<String> appIds = new java.util.ArrayList<>();
+
+        public UnlockSync() {}
+
+        public UnlockSync(java.util.List<String> ids) {
+            this.appIds = ids;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int n = buf.readShort();
+            appIds = new java.util.ArrayList<>(Math.min(n, 256));
+            for (int i = 0; i < n; i++) {
+                byte[] data = new byte[buf.readUnsignedByte()];
+                buf.readBytes(data);
+                appIds.add(new String(data, java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeShort(appIds.size());
+            for (String id : appIds) {
+                byte[] data = (id == null ? "" : id).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                buf.writeByte(Math.min(data.length, 255));
+                buf.writeBytes(data, 0, Math.min(data.length, 255));
+            }
+        }
+
+        public static class Handler implements IMessageHandler<UnlockSync, IMessage> {
+
+            @Override
+            public IMessage onMessage(UnlockSync msg, MessageContext ctx) {
+                // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用（同 WaypointSync）。
+                com.november.mcphone.client.ClientHooks.pendingUnlockSync =
+                    new java.util.ArrayList<>(msg.appIds);
                 return null;
             }
         }

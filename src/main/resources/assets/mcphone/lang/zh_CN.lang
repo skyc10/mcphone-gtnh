@@ -100,3 +100,11 @@ state.mcphone.off=关闭
 msg.mcphone.appmgr_order_hint=↑/↓ 调整主屏图标顺序。
 label.mcphone.button_scale=
 label.mcphone.button_scale=按钮字号（50–250%）
+
+label.mcphone.store_mode=商店模式
+msg.mcphone.store_hint=开启后内建付费应用需购买解锁；附属应用始终免费可用。
+msg.mcphone.store_page_hint=商店模式：付费应用购买后可用，卸载重装免费。
+label.mcphone.store_locked_tag=（未购买）
+msg.mcphone.store_locked=§7[MC手机] §e该应用未购买：请到「应用管理」购买。
+btn.mcphone.buy=购买
+state.mcphone.system=系统

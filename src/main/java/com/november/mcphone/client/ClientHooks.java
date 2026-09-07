@@ -25,6 +25,9 @@ public final class ClientHooks {
     /** WaypointSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
     public static volatile java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> pendingWaypointSync;
 
+    /** UnlockSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
+    public static volatile java.util.List<String> pendingUnlockSync;
+
     private static String lastAe2GuiLogged;
 
     private static boolean cameraMode;
@@ -98,6 +101,12 @@ public final class ClientHooks {
         if (sync != null) {
             pendingWaypointSync = null;
             com.november.mcphone.client.scene.PhoneUi.onWaypointSync(sync);
+        }
+        // 服务端→客户端已购 App 同步（netty 线程缓存，主线程应用）。
+        java.util.List<String> unlock = pendingUnlockSync;
+        if (unlock != null) {
+            pendingUnlockSync = null;
+            StoreClient.onUnlockSync(unlock);
         }
     }
 

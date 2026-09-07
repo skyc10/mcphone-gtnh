@@ -19,6 +19,7 @@ import com.november.mcphone.MCphone;
 public final class PhoneCanvas {
 
     private static final String KEY_DISABLED = "disabledApps";
+    private static final String KEY_STORE_MODE = "storeMode";
 
     private PhoneCanvas() {}
 
@@ -70,6 +71,22 @@ public final class PhoneCanvas {
     public static List<String> disabledApps() {
         String v = load().getProperty(KEY_DISABLED, "");
         return Collections.unmodifiableList(new java.util.ArrayList<>(java.util.Arrays.asList(v.split(","))));
+    }
+
+    // ===================== 商店模式 =====================
+
+    /**
+     * 商店模式：开启后内建付费 App 需购买解锁（附属 App 始终免费可用）。
+     * 默认关闭——关闭时与旧版行为完全一致。
+     */
+    public static boolean isStoreMode() {
+        return "true".equalsIgnoreCase(load().getProperty(KEY_STORE_MODE, "false").trim());
+    }
+
+    public static void setStoreMode(boolean on) {
+        Properties p = load();
+        p.setProperty(KEY_STORE_MODE, String.valueOf(on));
+        save(p);
     }
 
     // ===================== 按钮字号（独立于全局字体缩放） =====================

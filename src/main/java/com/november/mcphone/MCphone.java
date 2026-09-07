@@ -52,6 +52,9 @@ public class MCphone {
     public void init(FMLInitializationEvent event) {
         NetworkHandler.init();
         proxy.initApps();
+        // 商店：登录时同步已购 App 给客户端（PlayerEvent 在 Forge 总线）。
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS
+            .register(new com.november.mcphone.store.StoreEvents());
         GameRegistry.addRecipe(
             new ShapedOreRecipe(
                 new ItemStack(ItemPhone.INSTANCE),
