@@ -80,6 +80,8 @@ Addons built on the API above:
 | Addon | Notes |
 | --- | --- |
 | [mcphone-addon-browser](https://github.com/skyc10/mcphone-addon-browser) (in development) | 🌐 **Browser**: click the icon to open real web pages on a 16:9 fullscreen virtual display, with bookmarks and history |
+| [mcphone-addon-wiki](https://github.com/skyc10/mcphone-addon-wiki) (in development) | 📖 **Wiki**: browse the GTNH Chinese wiki fullscreen from the phone — no URL bar, single-site with back/refresh/home |
+| mcphone-addon-music (in development, repo coming) | 🎵 **Music**: view the song currently playing via FMusic — title/artist, cover, progress and lyrics (read-only display; playback is FMusic's job) |
 
 ## Credits
 

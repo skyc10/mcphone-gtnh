@@ -77,6 +77,8 @@ MCphone 带一套基于场景 UI 的 App 扩展接口：继承 `PhoneAppBase`、
 | 附属 | 说明 |
 | --- | --- |
 | [mcphone-addon-browser](https://github.com/skyc10/mcphone-addon-browser)（正在制作中） | 🌐 **浏览器**：点击图标直接打开 16:9 全屏虚拟大屏浏览真实网页，支持书签与浏览历史 |
+| [mcphone-addon-wiki](https://github.com/skyc10/mcphone-addon-wiki)（正在制作中） | 📖 **维基**：点击图标全屏浏览 GTNH 中文维基，无 URL 栏、站内直达，带后退/刷新/首页 |
+| mcphone-addon-music（正在制作中，仓库筹备中） | 🎵 **音乐**：查看 FMusic 前置正在播放的歌曲——歌名/歌手、封面、进度与歌词（只读展示，播放由 FMusic 负责） |
 
 ## 致谢
 
