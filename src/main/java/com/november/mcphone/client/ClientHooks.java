@@ -28,6 +28,9 @@ public final class ClientHooks {
     /** UnlockSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
     public static volatile java.util.List<String> pendingUnlockSync;
 
+    /** NoteSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
+    public static volatile java.util.List<com.november.mcphone.feature.notes.Note> pendingNoteSync;
+
     private static String lastAe2GuiLogged;
 
     private static boolean cameraMode;
@@ -110,6 +113,12 @@ public final class ClientHooks {
         }
         // 聊天 App：会话/消息/图片同步包在 netty 线程入队，这里主线程应用并刷新页面。
         com.november.mcphone.feature.chat.client.ChatClient.applyPending();
+        // 服务端→客户端便签同步（netty 线程缓存，主线程应用；含旧本地便签一次性导入）。
+        java.util.List<com.november.mcphone.feature.notes.Note> noteSync = pendingNoteSync;
+        if (noteSync != null) {
+            pendingNoteSync = null;
+            com.november.mcphone.feature.notes.NotesClientCache.onSync(noteSync);
+        }
     }
 
     public static boolean isCameraMode() {

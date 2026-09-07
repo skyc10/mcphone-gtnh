@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
  * 5=购买App(C→S) 6=解锁状态同步(S→C)
  * 7=好友操作(C→S) 8=聊天消息(C→S) 9=会话/好友全量同步(S→C) 10=消息推送(S→C)
  * 11=图片上传/拉取(C→S)。
+ * 12=便签保存/删除(C→S) 13=便签全量同步(S→C) 14=便签印成书(C→S)。
  * Teleport 语义：mode 0=传送到指定传送点 1=绑定当前位置 2=重命名 3=删除。
  */
 public final class NetworkHandler {
@@ -46,6 +47,12 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(ChatImage.Handler.class, ChatImage.class, 11, Side.SERVER);
         // 聊天：登录时全量同步会话/好友数据给客户端（Forge 总线，仅服务端触发）。
         com.november.mcphone.feature.chat.ChatEvents.register();
+        INSTANCE.registerMessage(NoteSave.Handler.class, NoteSave.class, 12, Side.SERVER);
+        INSTANCE.registerMessage(NoteSync.Handler.class, NoteSync.class, 13, Side.CLIENT);
+        INSTANCE.registerMessage(NotePrint.Handler.class, NotePrint.class, 14, Side.SERVER);
+        // 便签登录同步（PlayerEvent 在 Forge 总线；NoteEvents 为 public 具名类，见踩坑 #7）。
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS
+            .register(new com.november.mcphone.feature.notes.NoteEvents());
     }
 
     public static void sendToServer(IMessage msg) {
@@ -755,6 +762,177 @@ public final class NetworkHandler {
                                 player, msg.peer, msg.imageId);
                         }
                     });
+                return null;
+            }
+        }
+    }
+
+    /** 客户端 → 服务端：保存/删除便签。数据存 NoteWorldData（随存档持久化），改后回推全量。 */
+    public static class NoteSave implements IMessage {
+
+        public static final byte ACTION_SAVE = 0;
+        public static final byte ACTION_DELETE = 1;
+
+        /** 0=保存 1=删除。 */
+        public byte action;
+        /** 便签 id（新建传 0，服务端分配）。 */
+        public int id;
+        public String title = "";
+        public String body = "";
+
+        public NoteSave() {}
+
+        public NoteSave(byte action, int id, String title, String body) {
+            this.action = action;
+            this.id = id;
+            this.title = title == null ? "" : title;
+            this.body = body == null ? "" : body;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            action = buf.readByte();
+            id = buf.readInt();
+            byte[] t = new byte[buf.readShort()];
+            buf.readBytes(t);
+            title = new String(t, java.nio.charset.StandardCharsets.UTF_8);
+            byte[] b = new byte[buf.readShort()];
+            buf.readBytes(b);
+            body = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(action);
+            buf.writeInt(id);
+            byte[] t = title.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            buf.writeShort(t.length);
+            buf.writeBytes(t);
+            byte[] b = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            buf.writeShort(b.length);
+            buf.writeBytes(b);
+        }
+
+        public static class Handler implements IMessageHandler<NoteSave, IMessage> {
+
+            @Override
+            public IMessage onMessage(NoteSave msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> {
+                        // 长度上限防御伪造包（正文 2000 字符 UTF-8 ≤ 8KB，short 前缀放得下）；
+                        // 条数上限与 id 合法性在 NoteServer 内校验。
+                        String title = msg.title == null ? "" : msg.title;
+                        String body = msg.body == null ? "" : msg.body;
+                        if (lenOk(title, 128) && lenOk(body, 8192)) {
+                            com.november.mcphone.feature.notes.NoteServer.handleSave(
+                                ctx.getServerHandler().playerEntity,
+                                msg.action == NoteSave.ACTION_DELETE
+                                    ? NoteSave.ACTION_DELETE
+                                    : NoteSave.ACTION_SAVE,
+                                msg.id,
+                                title,
+                                body);
+                        }
+                    });
+                return null;
+            }
+
+            private static boolean lenOk(String s, int maxBytes) {
+                return s.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= maxBytes;
+            }
+        }
+    }
+
+    /** 服务端 → 客户端：当前玩家便签全量同步（登录/增删改后）。 */
+    public static class NoteSync implements IMessage {
+
+        public java.util.List<com.november.mcphone.feature.notes.Note> notes =
+            new java.util.ArrayList<>();
+
+        public NoteSync() {}
+
+        public NoteSync(java.util.List<com.november.mcphone.feature.notes.Note> notes) {
+            this.notes = notes;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int n = buf.readShort();
+            notes = new java.util.ArrayList<>(Math.min(n, 512));
+            for (int i = 0; i < n; i++) {
+                com.november.mcphone.feature.notes.Note note =
+                    new com.november.mcphone.feature.notes.Note();
+                note.id = buf.readInt();
+                byte[] t = new byte[buf.readShort()];
+                buf.readBytes(t);
+                note.title = new String(t, java.nio.charset.StandardCharsets.UTF_8);
+                byte[] b = new byte[buf.readShort()];
+                buf.readBytes(b);
+                note.body = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+                note.modified = buf.readLong();
+                notes.add(note);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeShort(notes.size());
+            for (com.november.mcphone.feature.notes.Note n : notes) {
+                byte[] t = (n.title == null ? "" : n.title)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                byte[] b = (n.body == null ? "" : n.body)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                buf.writeInt(n.id);
+                buf.writeShort(t.length);
+                buf.writeBytes(t);
+                buf.writeShort(b.length);
+                buf.writeBytes(b);
+                buf.writeLong(n.modified);
+            }
+        }
+
+        public static class Handler implements IMessageHandler<NoteSync, IMessage> {
+
+            @Override
+            public IMessage onMessage(NoteSync msg, MessageContext ctx) {
+                // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用（同 WaypointSync）。
+                com.november.mcphone.client.ClientHooks.pendingNoteSync =
+                    new java.util.ArrayList<>(msg.notes);
+                return null;
+            }
+        }
+    }
+
+    /** 客户端 → 服务端：把便签印成一本成书（NotePrinter 生成 WrittenBook NBT 放入背包）。 */
+    public static class NotePrint implements IMessage {
+
+        public int id;
+
+        public NotePrint() {}
+
+        public NotePrint(int id) {
+            this.id = id;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            id = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(id);
+        }
+
+        public static class Handler implements IMessageHandler<NotePrint, IMessage> {
+
+            @Override
+            public IMessage onMessage(NotePrint msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> com.november.mcphone.feature.notes.NoteServer.handlePrint(
+                        ctx.getServerHandler().playerEntity, msg.id));
                 return null;
             }
         }

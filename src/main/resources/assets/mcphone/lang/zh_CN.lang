@@ -130,3 +130,8 @@ msg.mcphone.chat_image_preview=[图片]
 msg.mcphone.chat_sent=照片已发送。
 msg.mcphone.chat_compress_fail=照片压缩失败或超过大小限制。
 msg.mcphone.chat_loading=图片加载中...
+# 便签（服务端持久化 + 印成书）
+label.mcphone.notes_syncing=正在同步便签...
+btn.mcphone.print_book=印成书
+msg.mcphone.note_save_first=请先保存便签再印成书。
+msg.mcphone.notes_imported=已把本地旧便签导入到服务器。

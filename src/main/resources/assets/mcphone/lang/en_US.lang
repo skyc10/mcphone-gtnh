@@ -129,3 +129,8 @@ msg.mcphone.chat_image_preview=[photo]
 msg.mcphone.chat_sent=Photo sent.
 msg.mcphone.chat_compress_fail=Photo compression failed or exceeds the size limit.
 msg.mcphone.chat_loading=Loading image...
+# Notes (server persistence + print as book)
+label.mcphone.notes_syncing=Syncing notes...
+btn.mcphone.print_book=Print as book
+msg.mcphone.note_save_first=Save the note before printing.
+msg.mcphone.notes_imported=Local notes imported to server.
