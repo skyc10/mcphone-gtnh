@@ -27,12 +27,13 @@ import club.heiqi.uilib.ui.scene.runtime.MountHandle;
 import com.november.mcphone.api.IPhoneApp;
 import com.november.mcphone.api.PhoneApi;
 import com.november.mcphone.api.PhoneWidgets;
-import com.november.mcphone.client.NotesStore;
 import com.november.mcphone.client.PhoneCanvas;
 import com.november.mcphone.client.PhotoStore;
 import com.november.mcphone.client.TimeUtil;
 import com.november.mcphone.client.scene.PhoneUi;
 import com.november.mcphone.core.ItemPhone;
+import com.november.mcphone.feature.notes.Note;
+import com.november.mcphone.feature.notes.NotesClientCache;
 import com.november.mcphone.net.NetworkHandler;
 
 /**
@@ -189,7 +190,7 @@ public final class ScenePages {
         return row;
     }
 
-    // ===================== 便签 =====================
+    // ===================== 便签（数据源 = 服务端持久化 + 同步缓存，见 feature/notes） =====================
 
     public static SceneNode notesPage(PhoneUi ui) {
         SceneNode page = SceneNode.column();
@@ -208,10 +209,15 @@ public final class ScenePages {
         SceneNode list = scrollColumn(ui);
         list.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.notes")));
         mountPrimaryButton(ui, list, StatCollector.translateToLocal("btn.mcphone.new_note"),
-            () -> showNotesEditor(ui, slot, new NotesStore.Note()));
+            () -> showNotesEditor(ui, slot, new Note()));
 
-        for (NotesStore.Note n : NotesStore.list()) {
-            NotesStore.Note note = n;
+        // 服务端全量同步未到达前显示加载提示，避免被误读为"没有便签"。
+        if (!NotesClientCache.isReceived()) {
+            list.appendChild(PhoneUi.muted(StatCollector
+                .translateToLocal("label.mcphone.notes_syncing")));
+        }
+        for (Note n : NotesClientCache.list()) {
+            Note note = n;
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
@@ -239,7 +245,7 @@ public final class ScenePages {
         slot.show(list);
     }
 
-    private static void showNotesEditor(PhoneUi ui, PageSlot slot, NotesStore.Note note) {
+    private static void showNotesEditor(PhoneUi ui, PageSlot slot, Note note) {
         // 受控输入：onChange 必须把值写回 Signal（控件不自己改 value），保存时从 Signal 读。
         Signal<String> titleValue = Signal.create(note.title == null ? "" : note.title);
         Signal<String> bodyValue = Signal.create(note.body == null ? "" : note.body);
@@ -266,7 +272,7 @@ public final class ScenePages {
             club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.create(ui.runtime(),
                 new club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.Props(
                     bodyValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
-                    StatCollector.translateToLocal("label.mcphone.note_body"), 20000,
+                    StatCollector.translateToLocal("label.mcphone.note_body"), Note.MAX_BODY,
                     0xFF6FB2E8, 0xFFE8EDF2, 0xFF8B98A8, 0xFF666666, bodyValue::set));
         SceneNode area = taRes.root();
         area.setFillParentWidth(true);
@@ -289,15 +295,23 @@ public final class ScenePages {
         actions.setFillParentWidth(true);
         actions.setGap(8);
         mountPrimaryButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
-            note.title = titleValue.get();
-            note.body = bodyValue.get();
-            NotesStore.save(note);
+            // 保存走服务端（随存档持久化）；服务端回推 NoteSync 后列表自动刷新。
+            NetworkHandler.sendToServer(new NetworkHandler.NoteSave(
+                NetworkHandler.NoteSave.ACTION_SAVE, note.id, titleValue.get(), bodyValue.get()));
             ui.toast(StatCollector.translateToLocal("msg.mcphone.saved"));
             showNotesList(ui, slot);
         });
         mountButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.delete"), () -> {
-            NotesStore.delete(note);
+            NetworkHandler.sendToServer(new NetworkHandler.NoteSave(
+                NetworkHandler.NoteSave.ACTION_DELETE, note.id, "", ""));
             showNotesList(ui, slot);
+        });
+        mountButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.print_book"), () -> {
+            if (note.isNew()) {
+                ui.toast(StatCollector.translateToLocal("msg.mcphone.note_save_first"));
+                return;
+            }
+            NetworkHandler.sendToServer(new NetworkHandler.NotePrint(note.id));
         });
         editor.appendChild(actions);
         slot.show(editor);

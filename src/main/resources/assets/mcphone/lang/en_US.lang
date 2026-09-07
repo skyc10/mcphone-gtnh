@@ -107,3 +107,9 @@ label.mcphone.store_locked_tag= (locked)
 msg.mcphone.store_locked=§7[MCphone] §eApp not purchased: buy it in App Manager.
 btn.mcphone.buy=Buy
 state.mcphone.system=System
+
+# Notes (server persistence + print as book)
+label.mcphone.notes_syncing=Syncing notes...
+btn.mcphone.print_book=Print as book
+msg.mcphone.note_save_first=Save the note before printing.
+msg.mcphone.notes_imported=Local notes imported to server.

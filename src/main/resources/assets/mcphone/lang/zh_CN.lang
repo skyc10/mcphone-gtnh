@@ -108,3 +108,9 @@ label.mcphone.store_locked_tag=（未购买）
 msg.mcphone.store_locked=§7[MC手机] §e该应用未购买：请到「应用管理」购买。
 btn.mcphone.buy=购买
 state.mcphone.system=系统
+
+# 便签（服务端持久化 + 印成书）
+label.mcphone.notes_syncing=正在同步便签...
+btn.mcphone.print_book=印成书
+msg.mcphone.note_save_first=请先保存便签再印成书。
+msg.mcphone.notes_imported=已把本地旧便签导入到服务器。
