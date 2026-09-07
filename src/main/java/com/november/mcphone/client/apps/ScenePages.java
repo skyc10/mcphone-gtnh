@@ -516,6 +516,12 @@ public final class ScenePages {
         slot.show(view);
     }
 
+    // ===================== 聊天（实现放 feature/chat/client/ChatUi） =====================
+
+    public static SceneNode chatPage(PhoneUi ui) {
+        return com.november.mcphone.feature.chat.client.ChatUi.friendsPage(ui);
+    }
+
     // ===================== 设置 =====================
 
     public static SceneNode settingsPage(PhoneUi ui) {

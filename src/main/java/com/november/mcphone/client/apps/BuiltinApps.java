@@ -33,6 +33,7 @@ public final class BuiltinApps {
         list.add(ae2());
         list.add(camera());
         list.add(gallery());
+        list.add(chat());
         list.add(settings());
         list.add(appManager());
         return list;
@@ -100,6 +101,22 @@ public final class BuiltinApps {
             @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
                 return ScenePages.galleryPage(ui);
+            }
+        };
+    }
+
+    private static IPhoneApp chat() {
+        return new Page("chat", "app.mcphone.chat", "聊", 0xFF4E9E6E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_chat.png";
+            }
+
+
+            @Override
+            public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
+                return ScenePages.chatPage(ui);
             }
         };
     }

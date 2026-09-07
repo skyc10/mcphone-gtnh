@@ -108,6 +108,8 @@ public final class ClientHooks {
             pendingUnlockSync = null;
             StoreClient.onUnlockSync(unlock);
         }
+        // 聊天 App：会话/消息/图片同步包在 netty 线程入队，这里主线程应用并刷新页面。
+        com.november.mcphone.feature.chat.client.ChatClient.applyPending();
     }
 
     public static boolean isCameraMode() {

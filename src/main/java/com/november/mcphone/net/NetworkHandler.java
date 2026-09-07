@@ -1,5 +1,8 @@
 package com.november.mcphone.net;
 
+import java.util.List;
+import java.util.UUID;
+
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
@@ -16,7 +19,9 @@ import io.netty.buffer.ByteBuf;
 
 /**
  * 网络通道：0=末影箱 1=AE2终端 2=传送 3=设备名 4=WaypointSync(S→C)
- * 5=购买App(C→S) 6=解锁状态同步(S→C)。
+ * 5=购买App(C→S) 6=解锁状态同步(S→C)
+ * 7=好友操作(C→S) 8=聊天消息(C→S) 9=会话/好友全量同步(S→C) 10=消息推送(S→C)
+ * 11=图片上传/拉取(C→S)。
  * Teleport 语义：mode 0=传送到指定传送点 1=绑定当前位置 2=重命名 3=删除。
  */
 public final class NetworkHandler {
@@ -34,6 +39,13 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(WaypointSync.Handler.class, WaypointSync.class, 4, Side.CLIENT);
         INSTANCE.registerMessage(PurchaseApp.Handler.class, PurchaseApp.class, 5, Side.SERVER);
         INSTANCE.registerMessage(UnlockSync.Handler.class, UnlockSync.class, 6, Side.CLIENT);
+        INSTANCE.registerMessage(ChatFriendAction.Handler.class, ChatFriendAction.class, 7, Side.SERVER);
+        INSTANCE.registerMessage(ChatMsgSend.Handler.class, ChatMsgSend.class, 8, Side.SERVER);
+        INSTANCE.registerMessage(ChatConvSync.Handler.class, ChatConvSync.class, 9, Side.CLIENT);
+        INSTANCE.registerMessage(ChatMsgPush.Handler.class, ChatMsgPush.class, 10, Side.CLIENT);
+        INSTANCE.registerMessage(ChatImage.Handler.class, ChatImage.class, 11, Side.SERVER);
+        // 聊天：登录时全量同步会话/好友数据给客户端（Forge 总线，仅服务端触发）。
+        com.november.mcphone.feature.chat.ChatEvents.register();
     }
 
     public static void sendToServer(IMessage msg) {
@@ -329,6 +341,420 @@ public final class NetworkHandler {
                 // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用（同 WaypointSync）。
                 com.november.mcphone.client.ClientHooks.pendingUnlockSync =
                     new java.util.ArrayList<>(msg.appIds);
+                return null;
+            }
+        }
+    }
+
+    // ===================== 聊天 App（7-11） =====================
+
+    /** short 长度前缀 UTF 串（1.7.10 自定义包总量须 ≤ 32KB，字符串都很短）。 */
+    private static String readUtf(ByteBuf buf) {
+        int len = buf.readUnsignedShort();
+        byte[] data = new byte[len];
+        buf.readBytes(data);
+        return new String(data, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static void writeUtf(ByteBuf buf, String s) {
+        byte[] data = (s == null ? "" : s).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        buf.writeShort(Math.min(data.length, 600));
+        buf.writeBytes(data, 0, Math.min(data.length, 600));
+    }
+
+    /** 客户端 → 服务端：好友操作。op 0=申请(name) 1=接受(uuid) 2=拒绝(uuid) 3=删除(uuid) 4=传送(uuid)。 */
+    public static class ChatFriendAction implements IMessage {
+
+        public int op;
+        public String payload = "";
+
+        public ChatFriendAction() {}
+
+        public ChatFriendAction(int op, String payload) {
+            this.op = op;
+            this.payload = payload == null ? "" : payload;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            op = buf.readByte();
+            payload = readUtf(buf);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(op);
+            writeUtf(buf, payload);
+        }
+
+        public static class Handler implements IMessageHandler<ChatFriendAction, IMessage> {
+
+            @Override
+            public IMessage onMessage(ChatFriendAction msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> com.november.mcphone.feature.chat.ChatService.handleFriendAction(
+                        ctx.getServerHandler().playerEntity, msg.op, msg.payload));
+                return null;
+            }
+        }
+    }
+
+    /**
+     * 客户端 → 服务端：消息操作。mode 0=发文本(peer,text) 1=拉取历史(peer) 2=标记已读(peer,time)。
+     */
+    public static class ChatMsgSend implements IMessage {
+
+        public int mode;
+        public String peer = "";
+        public String text = "";
+        public long time;
+
+        public ChatMsgSend() {}
+
+        public ChatMsgSend(int mode, String peer, String text, long time) {
+            this.mode = mode;
+            this.peer = peer == null ? "" : peer;
+            this.text = text == null ? "" : text;
+            this.time = time;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            mode = buf.readByte();
+            peer = readUtf(buf);
+            if (mode == 0) {
+                text = readUtf(buf);
+            } else if (mode == 2) {
+                time = buf.readLong();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(mode);
+            writeUtf(buf, peer);
+            if (mode == 0) {
+                writeUtf(buf, text);
+            } else if (mode == 2) {
+                buf.writeLong(time);
+            }
+        }
+
+        public static class Handler implements IMessageHandler<ChatMsgSend, IMessage> {
+
+            @Override
+            public IMessage onMessage(ChatMsgSend msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> com.november.mcphone.feature.chat.ChatService.handleMsg(
+                        ctx.getServerHandler().playerEntity, msg.mode, msg.peer, msg.text, msg.time));
+                return null;
+            }
+        }
+    }
+
+    /** 服务端 → 客户端：会话/好友/申请/可添加玩家全量同步。 */
+    public static class ChatConvSync implements IMessage {
+
+        /** 一行数据：好友/申请/在线玩家三张表共用。 */
+        public static class Entry {
+
+            public final String uuid;
+            public final String name;
+            public final boolean online;
+            public final int unread;
+            public final String preview;
+
+            public Entry(String uuid, String name, boolean online, int unread, String preview) {
+                this.uuid = uuid;
+                this.name = name;
+                this.online = online;
+                this.unread = unread;
+                this.preview = preview == null ? "" : preview;
+            }
+        }
+
+        public final List<Entry> entries;
+        public final List<Entry> requests;
+        public final List<Entry> addable;
+
+        public ChatConvSync() {
+            entries = new java.util.ArrayList<>();
+            requests = new java.util.ArrayList<>();
+            addable = new java.util.ArrayList<>();
+        }
+
+        public ChatConvSync(List<Entry> entries, List<Entry> requests, List<Entry> addable) {
+            this.entries = entries;
+            this.requests = requests;
+            this.addable = addable;
+        }
+
+        private static List<Entry> readEntries(ByteBuf buf) {
+            int n = buf.readUnsignedByte();
+            List<Entry> out = new java.util.ArrayList<>(Math.min(n, 128));
+            for (int i = 0; i < n; i++) {
+                out.add(new Entry(
+                    readUtf(buf), readUtf(buf), buf.readByte() != 0,
+                    buf.readUnsignedByte(), readUtf(buf)));
+            }
+            return out;
+        }
+
+        private static void writeEntries(ByteBuf buf, List<Entry> list) {
+            buf.writeByte(Math.min(list.size(), 255));
+            for (Entry e : list) {
+                writeUtf(buf, e.uuid);
+                writeUtf(buf, e.name);
+                buf.writeByte(e.online ? 1 : 0);
+                buf.writeByte(Math.min(e.unread, 99));
+                writeUtf(buf, e.preview);
+            }
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entries.addAll(readEntries(buf));
+            requests.addAll(readEntries(buf));
+            addable.addAll(readEntries(buf));
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            writeEntries(buf, entries);
+            writeEntries(buf, requests);
+            writeEntries(buf, addable);
+        }
+
+        public static class Handler implements IMessageHandler<ChatConvSync, IMessage> {
+
+            @Override
+            public IMessage onMessage(ChatConvSync msg, MessageContext ctx) {
+                // netty 线程：排进并发队列，客户端 tick 主线程应用（同 WaypointSync 模式）。
+                com.november.mcphone.feature.chat.client.ChatClient.onConvSync(msg);
+                return null;
+            }
+        }
+    }
+
+    /**
+     * 服务端 → 客户端：消息推送。
+     * kind 0=历史批（拉取响应，整表替换） 1=单条新消息（追加） 2=图片字节（按需拉取的响应）。
+     */
+    public static class ChatMsgPush implements IMessage {
+
+        public static class MsgMeta {
+
+            public boolean self;
+            public long time;
+            public boolean image;
+            public String text = "";
+            public String imageId = "";
+            public int w;
+            public int h;
+        }
+
+        public int kind;
+        public String peer = "";
+        public List<MsgMeta> messages = new java.util.ArrayList<>();
+        /** kind=2 的图片字节。 */
+        public byte[] data;
+        public int w;
+        public int h;
+        public String imageId = "";
+
+        public ChatMsgPush() {}
+
+        public static ChatMsgPush history(String peer, List<com.november.mcphone.feature.chat.ChatWorldData.Msg> msgs, UUID self) {
+            ChatMsgPush m = new ChatMsgPush();
+            m.kind = 0;
+            m.peer = peer;
+            for (com.november.mcphone.feature.chat.ChatWorldData.Msg msg : msgs) {
+                m.messages.add(meta(msg, self));
+            }
+            return m;
+        }
+
+        public static ChatMsgPush single(String peer, com.november.mcphone.feature.chat.ChatWorldData.Msg msg, boolean self) {
+            ChatMsgPush m = new ChatMsgPush();
+            m.kind = 1;
+            m.peer = peer;
+            MsgMeta meta = meta(msg, null);
+            meta.self = self;
+            m.messages.add(meta);
+            if (msg.kind == 1) m.imageId = msg.imageId;
+            return m;
+        }
+
+        public static ChatMsgPush imageData(String peer, com.november.mcphone.feature.chat.ChatWorldData.Msg msg) {
+            ChatMsgPush m = new ChatMsgPush();
+            m.kind = 2;
+            m.peer = peer;
+            m.imageId = msg.imageId;
+            m.data = msg.data;
+            m.w = msg.w;
+            m.h = msg.h;
+            return m;
+        }
+
+        private static MsgMeta meta(com.november.mcphone.feature.chat.ChatWorldData.Msg msg, UUID self) {
+            MsgMeta meta = new MsgMeta();
+            meta.time = msg.time;
+            meta.image = msg.kind == 1;
+            meta.text = msg.text;
+            meta.imageId = msg.imageId;
+            meta.w = msg.w;
+            meta.h = msg.h;
+            if (self != null) meta.self = msg.sender.equals(self);
+            return meta;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            kind = buf.readByte();
+            peer = readUtf(buf);
+            if (kind == 2) {
+                imageId = readUtf(buf);
+                w = buf.readInt();
+                h = buf.readInt();
+                data = new byte[buf.readInt()];
+                buf.readBytes(data);
+                return;
+            }
+            int n = kind == 0 ? buf.readUnsignedShort() : 1;
+            for (int i = 0; i < n; i++) {
+                MsgMeta meta = new MsgMeta();
+                meta.self = buf.readByte() != 0;
+                meta.time = buf.readLong();
+                meta.image = buf.readByte() != 0;
+                if (meta.image) {
+                    meta.imageId = readUtf(buf);
+                    meta.w = buf.readInt();
+                    meta.h = buf.readInt();
+                } else {
+                    meta.text = readUtf(buf);
+                }
+                messages.add(meta);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(kind);
+            writeUtf(buf, peer);
+            if (kind == 2) {
+                writeUtf(buf, imageId);
+                buf.writeInt(w);
+                buf.writeInt(h);
+                byte[] d = data == null ? new byte[0] : data;
+                buf.writeInt(d.length);
+                buf.writeBytes(d);
+                return;
+            }
+            if (kind == 0) {
+                buf.writeShort(Math.min(messages.size(), 200));
+            }
+            for (MsgMeta meta : messages) {
+                buf.writeByte(meta.self ? 1 : 0);
+                buf.writeLong(meta.time);
+                buf.writeByte(meta.image ? 1 : 0);
+                if (meta.image) {
+                    writeUtf(buf, meta.imageId);
+                    buf.writeInt(meta.w);
+                    buf.writeInt(meta.h);
+                } else {
+                    writeUtf(buf, meta.text);
+                }
+            }
+        }
+
+        public static class Handler implements IMessageHandler<ChatMsgPush, IMessage> {
+
+            @Override
+            public IMessage onMessage(ChatMsgPush msg, MessageContext ctx) {
+                // netty 线程：排进并发队列，客户端 tick 主线程应用。
+                if (msg.kind == 2) {
+                    com.november.mcphone.feature.chat.client.ChatClient.onImageData(msg);
+                } else {
+                    com.november.mcphone.feature.chat.client.ChatClient.onMsgPush(msg);
+                }
+                return null;
+            }
+        }
+    }
+
+    /** 客户端 → 服务端：图片上传(op=0, 带 JPEG 字节)/按需拉取(op=1, 按 imageId)。 */
+    public static class ChatImage implements IMessage {
+
+        public int op;
+        public String peer = "";
+        public String imageId = "";
+        public byte[] data;
+        public int w;
+        public int h;
+
+        public ChatImage() {}
+
+        public ChatImage(int op, String peer, String imageId, byte[] data, int w, int h) {
+            this.op = op;
+            this.peer = peer == null ? "" : peer;
+            this.imageId = imageId == null ? "" : imageId;
+            this.data = data;
+            this.w = w;
+            this.h = h;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            op = buf.readByte();
+            peer = readUtf(buf);
+            if (op == 0) {
+                w = buf.readInt();
+                h = buf.readInt();
+                int len = buf.readInt();
+                // 防伪造超大包：1.7.10 自定义包本身 ≤ 32KB，这里再按配置上限掐一道。
+                if (len < 0 || len > 32 * 1024) {
+                    len = 0;
+                }
+                data = new byte[len];
+                buf.readBytes(data);
+            } else {
+                imageId = readUtf(buf);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(op);
+            writeUtf(buf, peer);
+            if (op == 0) {
+                buf.writeInt(w);
+                buf.writeInt(h);
+                byte[] d = data == null ? new byte[0] : data;
+                buf.writeInt(d.length);
+                buf.writeBytes(d);
+            } else {
+                writeUtf(buf, imageId);
+            }
+        }
+
+        public static class Handler implements IMessageHandler<ChatImage, IMessage> {
+
+            @Override
+            public IMessage onMessage(ChatImage msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> {
+                        EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+                        if (msg.op == 0) {
+                            com.november.mcphone.feature.chat.ChatService.handleImageUpload(
+                                player, msg.peer, msg.data, msg.w, msg.h);
+                        } else {
+                            com.november.mcphone.feature.chat.ChatService.handleImageRequest(
+                                player, msg.peer, msg.imageId);
+                        }
+                    });
                 return null;
             }
         }
