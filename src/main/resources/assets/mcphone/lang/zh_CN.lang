@@ -135,3 +135,45 @@ label.mcphone.notes_syncing=正在同步便签...
 btn.mcphone.print_book=印成书
 msg.mcphone.note_save_first=请先保存便签再印成书。
 msg.mcphone.notes_imported=已把本地旧便签导入到服务器。
+label.mcphone.weather=天气
+msg.mcphone.playtime_session=本局时长
+msg.mcphone.playtime_total=世界总时长
+msg.mcphone.playtime_syncing=同步中…
+msg.mcphone.playtime_hm=%s 小时 %s 分
+msg.mcphone.playtime_min=%s 分钟
+msg.mcphone.playtime_hint=时长按服务器计时，只在游玩时累计。
+msg.mcphone.greet.welcome_back=欢迎回来
+msg.mcphone.greet.late_night=夜深了，注意休息
+msg.mcphone.greet.long_session=已经连续玩了 %s 个小时，歇一会儿吧
+msg.mcphone.greet.milestone=这个世界陪了你整整 %s 小时
+msg.mcphone.greet.morning=早上好
+msg.mcphone.greet.noon=中午好
+msg.mcphone.greet.afternoon=下午好
+msg.mcphone.greet.evening=晚上好
+
+weather.mcphone.kind.clear=晴
+weather.mcphone.kind.rain=雨
+weather.mcphone.kind.snow=雪
+weather.mcphone.kind.thunder=雷暴
+weather.mcphone.kind.dry=无降水
+weather.mcphone.kind.none=无天气
+weather.mcphone.advice.clear=阳光普照，赶路、挖矿都合适——白天地表基本不刷怪。
+weather.mcphone.advice.clear.night=夜里地表开始刷怪，带好火把和武器，或者直接睡一觉跳过。
+weather.mcphone.advice.rain=雨天鱼上钩更快，正适合钓鱼；露天放着的火会被浇灭。
+weather.mcphone.advice.snow=落雪正适合收雪球攒雪块；雪原夜里格外冷，出门多带点补给。
+weather.mcphone.advice.thunder=雷暴天别在空旷处逗留；想找高压苦力怕，正是现在。
+weather.mcphone.advice.dry=这里落不下雨，但天光已经变暗，出门照旧当心怪物。
+weather.mcphone.advice.none=这个维度没有天气这回事。
+label.mcphone.advice=适合现在做
+
+label.mcphone.font_color=字体颜色
+msg.mcphone.font_color_hint=点击色块更换手机文字颜色。
+wp.mcphone.midnight=深空
+wp.mcphone.dawn=晨曦
+wp.mcphone.ocean=深海
+wp.mcphone.forest=森林
+wp.mcphone.dusk=暮色
+wp.mcphone.graphite=石墨
+
+msg.mcphone.home_drag_hint=长按图标拖动可排序（按存档保存）。
+
