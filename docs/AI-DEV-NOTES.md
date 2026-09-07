@@ -98,7 +98,7 @@ com.november.mcphone
 
 ## 6. 快速上手清单（新 AI 会话）
 
-1. 读本文档 + `docs/addon-api.md` + README。
+1. 读本文档 + `docs/gtnh-dev-guide.md`（GTNH 构建/调试/依赖通用要点）+ `docs/addon-api.md` + README。
 2. `git log --oneline` 看最近提交；`git log dev-history` 看过程细节。
 3. 构建验证：`./gradlew build -x test`；产物在 `build/libs/`。
 4. 装实例：复制 `*-dirty.jar`（非 dev/sources/api）到两个实例的 `.minecraft/mods/mcphone-1.0.0.jar`。

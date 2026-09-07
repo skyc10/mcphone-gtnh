@@ -51,7 +51,7 @@
 
 ## 开发者 / AI 接手
 
-架构、踩坑清单、构建发版流程与工作规约见 **[docs/AI-DEV-NOTES.md](docs/AI-DEV-NOTES.md)**；附属开发见 [docs/addon-api.md](docs/addon-api.md)。完整开发过程历史在 `dev-history` 分支。
+架构、踩坑清单、构建发版流程与工作规约见 **[docs/AI-DEV-NOTES.md](docs/AI-DEV-NOTES.md)**；GTNH 构建/调试/依赖通用要点见 [docs/gtnh-dev-guide.md](docs/gtnh-dev-guide.md)；附属开发见 [docs/addon-api.md](docs/addon-api.md)。完整开发过程历史在 `dev-history` 分支。
 
 ## 存储位置
 

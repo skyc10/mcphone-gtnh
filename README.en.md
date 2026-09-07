@@ -54,7 +54,7 @@ Hold it and right-click to power on; with the phone in your inventory, **P** als
 
 ## For developers / AI handover
 
-Architecture, pitfall notes, build/release workflow and conventions: **[docs/AI-DEV-NOTES.md](docs/AI-DEV-NOTES.md)** (Chinese). Addon development: [docs/addon-api.md](docs/addon-api.md). The full development history lives on the `dev-history` branch.
+Architecture, pitfall notes, build/release workflow and conventions: **[docs/AI-DEV-NOTES.md](docs/AI-DEV-NOTES.md)** (Chinese). General GTNH build/debug/dependency notes: [docs/gtnh-dev-guide.md](docs/gtnh-dev-guide.md). Addon development: [docs/addon-api.md](docs/addon-api.md). The full development history lives on the `dev-history` branch.
 
 ## Storage locations
 
