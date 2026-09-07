@@ -107,3 +107,46 @@ label.mcphone.store_locked_tag= (locked)
 msg.mcphone.store_locked=§7[MCphone] §eApp not purchased: buy it in App Manager.
 btn.mcphone.buy=Buy
 state.mcphone.system=System
+
+label.mcphone.weather=Weather
+msg.mcphone.playtime_session=This session
+msg.mcphone.playtime_total=Total in this world
+msg.mcphone.playtime_syncing=Syncing...
+msg.mcphone.playtime_hm=%sh %sm
+msg.mcphone.playtime_min=%s min
+msg.mcphone.playtime_hint=Time is counted by the server, only while playing.
+msg.mcphone.greet.welcome_back=Welcome back
+msg.mcphone.greet.late_night=It's late. Get some rest.
+msg.mcphone.greet.long_session=You've been playing for %s hours straight. Take a break!
+msg.mcphone.greet.milestone=This world has kept you company for %s hours.
+msg.mcphone.greet.morning=Good morning
+msg.mcphone.greet.noon=Good noon
+msg.mcphone.greet.afternoon=Good afternoon
+msg.mcphone.greet.evening=Good evening
+
+weather.mcphone.kind.clear=Clear
+weather.mcphone.kind.rain=Rain
+weather.mcphone.kind.snow=Snow
+weather.mcphone.kind.thunder=Thunderstorm
+weather.mcphone.kind.dry=Dry
+weather.mcphone.kind.none=No weather
+weather.mcphone.advice.clear=Great time to travel or mine - hostile mobs barely spawn in daylight.
+weather.mcphone.advice.clear.night=Mobs are spawning on the surface. Bring torches and a sword, or just sleep through it.
+weather.mcphone.advice.rain=Fish bite much faster in the rain; open fires will be extinguished.
+weather.mcphone.advice.snow=Good time to collect snowballs and snow blocks. Nights get cold out there.
+weather.mcphone.advice.thunder=Don't stand in the open. Charged creepers appear right now, if you want one.
+weather.mcphone.advice.dry=No rain falls here, but the sky has dimmed - stay careful.
+weather.mcphone.advice.none=Weather does not exist in this dimension.
+label.mcphone.advice=What to do now
+
+label.mcphone.font_color=Text color
+msg.mcphone.font_color_hint=Tap a swatch to change the phone text color.
+wp.mcphone.midnight=Midnight
+wp.mcphone.dawn=Dawn
+wp.mcphone.ocean=Ocean
+wp.mcphone.forest=Forest
+wp.mcphone.dusk=Dusk
+wp.mcphone.graphite=Graphite
+
+msg.mcphone.home_drag_hint=Hold and drag icons to reorder (saved per world).
+

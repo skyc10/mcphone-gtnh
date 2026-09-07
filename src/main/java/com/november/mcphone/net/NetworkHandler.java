@@ -16,7 +16,8 @@ import io.netty.buffer.ByteBuf;
 
 /**
  * 网络通道：0=末影箱 1=AE2终端 2=传送 3=设备名 4=WaypointSync(S→C)
- * 5=购买App(C→S) 6=解锁状态同步(S→C)。
+ * 5=购买App(C→S) 6=解锁状态同步(S→C)
+ * 15=PlayTimeSync(S→C) 16=PlayTimeMilestone(C→S)。
  * Teleport 语义：mode 0=传送到指定传送点 1=绑定当前位置 2=重命名 3=删除。
  */
 public final class NetworkHandler {
@@ -34,6 +35,12 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(WaypointSync.Handler.class, WaypointSync.class, 4, Side.CLIENT);
         INSTANCE.registerMessage(PurchaseApp.Handler.class, PurchaseApp.class, 5, Side.SERVER);
         INSTANCE.registerMessage(UnlockSync.Handler.class, UnlockSync.class, 6, Side.CLIENT);
+        // 游玩时长（服务端权威）：S→C 快照推送 + C→S 里程碑确认（一次性问候落盘）。
+        INSTANCE.registerMessage(PlayTimeSync.Handler.class, PlayTimeSync.class, 15, Side.CLIENT);
+        INSTANCE.registerMessage(PlayTimeMilestone.Handler.class, PlayTimeMilestone.class, 16, Side.SERVER);
+        if (cpw.mods.fml.common.FMLCommonHandler.instance().getEffectiveSide().isServer()) {
+            com.november.mcphone.store.PlayTimeTracker.register();
+        }
     }
 
     public static void sendToServer(IMessage msg) {
@@ -329,6 +336,90 @@ public final class NetworkHandler {
                 // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用（同 WaypointSync）。
                 com.november.mcphone.client.ClientHooks.pendingUnlockSync =
                     new java.util.ArrayList<>(msg.appIds);
+                return null;
+            }
+        }
+    }
+
+    /** 服务端 → 客户端：游玩时长快照（登录/周期推送，服务端权威，单位现实 tick）。 */
+    public static class PlayTimeSync implements IMessage {
+
+        public long sessionTicks;
+        public long totalTicks;
+        public boolean milestone3hShown;
+        public boolean milestone100hShown;
+
+        public PlayTimeSync() {}
+
+        public PlayTimeSync(long sessionTicks, long totalTicks,
+                            boolean milestone3hShown, boolean milestone100hShown) {
+            this.sessionTicks = sessionTicks;
+            this.totalTicks = totalTicks;
+            this.milestone3hShown = milestone3hShown;
+            this.milestone100hShown = milestone100hShown;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            sessionTicks = buf.readLong();
+            totalTicks = buf.readLong();
+            byte flags = buf.readByte();
+            milestone3hShown = (flags & 1) != 0;
+            milestone100hShown = (flags & 2) != 0;
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeLong(sessionTicks);
+            buf.writeLong(totalTicks);
+            byte flags = (byte) ((milestone3hShown ? 1 : 0) | (milestone100hShown ? 2 : 0));
+            buf.writeByte(flags);
+        }
+
+        public static class Handler implements IMessageHandler<PlayTimeSync, IMessage> {
+
+            @Override
+            public IMessage onMessage(PlayTimeSync msg, MessageContext ctx) {
+                // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用（同 WaypointSync）。
+                com.november.mcphone.client.ClientHooks.pendingPlayTimeSync =
+                    new com.november.mcphone.client.enhance.PlayTimeClient.Snapshot(
+                        msg.sessionTicks, msg.totalTicks,
+                        msg.milestone3hShown, msg.milestone100hShown);
+                return null;
+            }
+        }
+    }
+
+    /** 客户端 → 服务端：里程碑问候已提示（0=本局 3 小时 1=世界总 100 小时），落盘保证一次性。 */
+    public static class PlayTimeMilestone implements IMessage {
+
+        /** 0 = 本局连续 3 小时；1 = 世界总时长 100 小时。 */
+        public int milestone;
+
+        public PlayTimeMilestone() {}
+
+        public PlayTimeMilestone(int milestone) {
+            this.milestone = milestone;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            milestone = buf.readByte();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(milestone);
+        }
+
+        public static class Handler implements IMessageHandler<PlayTimeMilestone, IMessage> {
+
+            @Override
+            public IMessage onMessage(PlayTimeMilestone msg, MessageContext ctx) {
+                runOnServer(
+                    ctx,
+                    () -> com.november.mcphone.store.PlayTimeTracker
+                        .handleMilestone(ctx.getServerHandler().playerEntity, msg.milestone));
                 return null;
             }
         }

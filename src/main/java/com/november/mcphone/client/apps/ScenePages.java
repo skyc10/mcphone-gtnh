@@ -30,6 +30,7 @@ import com.november.mcphone.api.PhoneWidgets;
 import com.november.mcphone.client.NotesStore;
 import com.november.mcphone.client.PhoneCanvas;
 import com.november.mcphone.client.PhotoStore;
+import com.november.mcphone.client.enhance.PhoneTheme;
 import com.november.mcphone.client.TimeUtil;
 import com.november.mcphone.client.scene.PhoneUi;
 import com.november.mcphone.core.ItemPhone;
@@ -43,8 +44,6 @@ import com.november.mcphone.net.NetworkHandler;
  */
 public final class ScenePages {
 
-    private static final int COL_TEXT = 0xFFE8EDF2;
-    private static final int COL_MUTED = 0xFF8B98A8;
     private static final int COL_PANEL = 0x33FFFFFF;
     private static final int COL_BORDER = 0x55FFFFFF;
 
@@ -125,9 +124,12 @@ public final class ScenePages {
         page.setCrossAxisAlign(CrossAxisAlign.CENTER);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.clock")));
 
+        // 时段问候（常驻一行；打开手机时的一次性 Toast 问候由 GreetingToast 负责）。
+        page.appendChild(PhoneUi.muted(com.november.mcphone.client.enhance.GreetingToast.bandText()));
+
         SceneNode big = new SceneNode();
         big.setText(PhoneUi.clockSignal().get());
-        big.setTextColor(COL_TEXT);
+        big.setTextColor(PhoneTheme.text());
         big.setFontSize(PhoneUi.fs(56));
         big.setHitTestable(false);
         ui.runtime().bindText(big, PhoneUi.clockSignal());
@@ -135,6 +137,16 @@ public final class ScenePages {
 
         page.appendChild(PhoneUi.muted(
             StatCollector.translateToLocalFormatted("msg.mcphone.world_day", TimeUtil.worldDay())));
+
+        // 游玩时长（服务端权威计时，PlayTimeSync 同步；未同步显示"同步中"）。
+        page.appendChild(infoRow(
+            StatCollector.translateToLocal("msg.mcphone.playtime_session"),
+            com.november.mcphone.client.enhance.PlayTimeClient.formatSession()));
+        page.appendChild(infoRow(
+            StatCollector.translateToLocal("msg.mcphone.playtime_total"),
+            com.november.mcphone.client.enhance.PlayTimeClient.formatTotal()));
+        page.appendChild(PhoneUi.muted(
+            StatCollector.translateToLocal("msg.mcphone.playtime_hint")));
         return page;
     }
 
@@ -152,7 +164,15 @@ public final class ScenePages {
             boolean rain = mc.theWorld.isRaining();
             boolean thunder = mc.theWorld.isThundering();
             boolean day = mc.theWorld.isDaytime();
+
+            // 按生物群系判定当地天气（雨/雪/无；无天空维度直接无）+ 建议文案。
+            com.november.mcphone.client.enhance.WeatherAdvisor.Kind kind =
+                com.november.mcphone.client.enhance.WeatherAdvisor.classify(mc.theWorld, x, z);
+
             page.appendChild(infoRow(StatCollector.translateToLocal("label.mcphone.biome"), biome));
+            page.appendChild(infoRow(
+                StatCollector.translateToLocal("label.mcphone.weather"),
+                com.november.mcphone.client.enhance.WeatherAdvisor.name(kind)));
             page.appendChild(infoRow(
                 StatCollector.translateToLocal("label.mcphone.rain"),
                 StatCollector.translateToLocal(rain ? "state.mcphone.yes" : "state.mcphone.no")));
@@ -162,10 +182,21 @@ public final class ScenePages {
             page.appendChild(infoRow(
                 StatCollector.translateToLocal("label.mcphone.daylight"),
                 StatCollector.translateToLocal(day ? "state.mcphone.day" : "state.mcphone.night")));
+
+            page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.advice")));
+            page.appendChild(wrappedMuted(
+                ui, com.november.mcphone.client.enhance.WeatherAdvisor.advice(kind, !day)));
         } else {
             page.appendChild(PhoneUi.muted("§7--"));
         }
         return page;
+    }
+
+    /** 可换行的次要说明文字（setMaxTextWidth 触发 Qz 按宽拆行）。 */
+    private static SceneNode wrappedMuted(PhoneUi ui, String value) {
+        SceneNode n = PhoneUi.muted(value);
+        n.setMaxTextWidth(ui.panelWidth() - 48);
+        return n;
     }
 
     private static SceneNode infoRow(String key, String value) {
@@ -175,12 +206,12 @@ public final class ScenePages {
         row.setGap(8);
         SceneNode k = new SceneNode();
         k.setText(key);
-        k.setTextColor(COL_MUTED);
+        k.setTextColor(PhoneTheme.muted());
         k.setFontSize(PhoneUi.fs(16));
         k.setHitTestable(false);
         SceneNode v = new SceneNode();
         v.setText(value);
-        v.setTextColor(COL_TEXT);
+        v.setTextColor(PhoneTheme.text());
         v.setFontSize(PhoneUi.fs(16));
         v.setHitTestable(false);
         row.appendChild(k);
@@ -221,7 +252,7 @@ public final class ScenePages {
             row.setBackgroundColor(COL_PANEL);
             SceneNode t = new SceneNode();
             t.setText(n.title.isEmpty() ? "(...)" : n.title);
-            t.setTextColor(COL_TEXT);
+            t.setTextColor(PhoneTheme.text());
             t.setFontSize(PhoneUi.fs(16));
             t.setMaxTextWidth(ui.panelWidth() - 60);
             t.setHitTestable(false);
@@ -229,7 +260,7 @@ public final class ScenePages {
             row.appendChild(spacer());
             SceneNode arrow = new SceneNode();
             arrow.setText("›");
-            arrow.setTextColor(COL_MUTED);
+            arrow.setTextColor(PhoneTheme.muted());
             arrow.setFontSize(PhoneUi.fs(16));
             arrow.setHitTestable(false);
             row.appendChild(arrow);
@@ -345,14 +376,14 @@ public final class ScenePages {
             nameRow.setGap(6);
             SceneNode name = new SceneNode();
             name.setText(w.name);
-            name.setTextColor(COL_TEXT);
+            name.setTextColor(PhoneTheme.text());
             name.setFontSize(PhoneUi.fs(16));
             name.setHitTestable(false);
             nameRow.appendChild(name);
             nameRow.appendChild(spacer());
             SceneNode dim = new SceneNode();
             dim.setText("D" + w.dim);
-            dim.setTextColor(COL_MUTED);
+            dim.setTextColor(PhoneTheme.muted());
             dim.setFontSize(PhoneUi.fs(12));
             dim.setHitTestable(false);
             nameRow.appendChild(dim);
@@ -360,7 +391,7 @@ public final class ScenePages {
 
             SceneNode coords = new SceneNode();
             coords.setText(String.format("%.0f, %.0f, %.0f", w.x, w.y, w.z));
-            coords.setTextColor(COL_MUTED);
+            coords.setTextColor(PhoneTheme.muted());
             coords.setFontSize(PhoneUi.fs(12));
             coords.setHitTestable(false);
             card.appendChild(coords);
@@ -586,7 +617,13 @@ public final class ScenePages {
                     }
                 })));
 
+        // ===================== 字体颜色 =====================
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.font_color")));
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.font_color_hint")));
+        page.appendChild(fontColorRow(ui));
+
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.wallpaper")));
+        page.appendChild(wallpaperPresetGrid(ui));
         mountPrimaryButton(ui, page, StatCollector.translateToLocal("btn.mcphone.reset_wallpaper"), () -> {
             PhotoStore.clearWallpaper();
             PhoneUi.refreshWallpaper();
@@ -614,6 +651,87 @@ public final class ScenePages {
             ui.rebuildPage();
         }));
         return row;
+    }
+
+    /** 字体颜色预设色块行：一行排开所有预设，当前项描白边，点击即应用并重建页面。 */
+    private static SceneNode fontColorRow(PhoneUi ui) {
+        SceneNode row = SceneNode.row();
+        row.setFillParentWidth(true);
+        row.setGap(8);
+        int current = com.november.mcphone.client.enhance.PhoneTheme.currentPreset();
+        for (int i = 0; i < com.november.mcphone.client.enhance.PhoneTheme.presetCount(); i++) {
+            final int index = i;
+            SceneNode swatch = SceneNode.row();
+            swatch.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+            swatch.setPreferredWidth(34);
+            swatch.setPreferredHeight(34);
+            swatch.setCornerRadius(8);
+            swatch.setBackgroundColor(com.november.mcphone.client.enhance.PhoneTheme.presetText(i));
+            swatch.setBorderWidth(index == current ? 3 : 1);
+            swatch.setBorderColor(index == current ? 0xFFFFFFFF : COL_BORDER);
+            ui.runtime().on(swatch, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+                com.november.mcphone.client.enhance.PhoneTheme.setPreset(index);
+                com.november.mcphone.client.enhance.PhoneTheme.refreshTheme();
+            }));
+            row.appendChild(swatch);
+        }
+        return row;
+    }
+
+    /** 预设壁纸网格（3 列色块缩略图）：点击生成渐变并写入 wallpaper.png，立即生效。 */
+    private static SceneNode wallpaperPresetGrid(PhoneUi ui) {
+        SceneNode grid = SceneNode.column();
+        grid.setFillParentWidth(true);
+        grid.setGap(8);
+        int perRow = 3;
+        int cellW = (ui.panelWidth() - 24 - (perRow - 1) * 8) / perRow;
+        for (int i = 0; i < com.november.mcphone.client.enhance.WallpaperPresets.count(); i += perRow) {
+            SceneNode row = SceneNode.row();
+            row.setFillParentWidth(true);
+            row.setGap(8);
+            for (int j = 0; j < perRow && i + j < com.november.mcphone.client.enhance.WallpaperPresets.count(); j++) {
+                row.appendChild(wallpaperPresetCell(ui, i + j, cellW));
+            }
+            grid.appendChild(row);
+        }
+        return grid;
+    }
+
+    private static SceneNode wallpaperPresetCell(PhoneUi ui, int index, int cellW) {
+        com.november.mcphone.client.enhance.WallpaperPresets.Preset preset =
+            com.november.mcphone.client.enhance.WallpaperPresets.get(index);
+        SceneNode cell = SceneNode.column();
+        cell.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        cell.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        cell.setGap(4);
+
+        SceneNode swatch = SceneNode.row();
+        swatch.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        swatch.setPreferredWidth(cellW);
+        swatch.setPreferredHeight(cellW * 16 / 9);
+        swatch.setCornerRadius(8);
+        swatch.setBackgroundColor(preset.swatchColor());
+        swatch.setBorderWidth(1);
+        swatch.setBorderColor(COL_BORDER);
+        swatch.setClipChildren(true);
+        ui.runtime().on(swatch, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+            if (com.november.mcphone.client.enhance.WallpaperPresets.apply(index)) {
+                ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_set"));
+            } else {
+                ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_fail"));
+            }
+        }));
+        cell.appendChild(swatch);
+
+        SceneNode label = new SceneNode();
+        label.setText(StatCollector.translateToLocal(preset.nameKey));
+        label.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.muted());
+        label.setFontSize(PhoneUi.fs(12));
+        label.setMaxTextWidth(cellW);
+        label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
+        label.setHitTestable(false);
+        cell.appendChild(label);
+        return cell;
     }
 
     // ===================== 应用管理 =====================
@@ -646,7 +764,7 @@ public final class ScenePages {
             row.setBackgroundColor(COL_PANEL);
             SceneNode label = new SceneNode();
             label.setText(app.displayName() + "  (" + app.id() + ")");
-            label.setTextColor(COL_TEXT);
+            label.setTextColor(PhoneTheme.text());
             label.setFontSize(PhoneUi.fs(15));
             label.setHitTestable(false);
             row.appendChild(label);
@@ -656,7 +774,7 @@ public final class ScenePages {
                 String price = com.november.mcphone.client.StoreClient.priceText(app);
                 SceneNode priceNode = new SceneNode();
                 priceNode.setText(price == null ? "" : price);
-                priceNode.setTextColor(COL_MUTED);
+                priceNode.setTextColor(PhoneTheme.muted());
                 priceNode.setFontSize(PhoneUi.fs(14));
                 priceNode.setHitTestable(false);
                 row.appendChild(priceNode);
@@ -667,7 +785,7 @@ public final class ScenePages {
                 if (system) {
                     // 商店模式下系统 App 不可卸载。
                     state.setText(StatCollector.translateToLocal("state.mcphone.system"));
-                    state.setTextColor(COL_MUTED);
+                    state.setTextColor(PhoneTheme.muted());
                 } else {
                     state.setText(StatCollector.translateToLocal(enabled ? "state.mcphone.on" : "state.mcphone.off"));
                     state.setTextColor(enabled ? 0xFF9CE89C : 0xFFE0A0A0);
@@ -712,7 +830,7 @@ public final class ScenePages {
         btn.setCrossAxisAlign(CrossAxisAlign.CENTER);
         SceneNode g = new SceneNode();
         g.setText(glyph);
-        g.setTextColor(active ? COL_TEXT : COL_MUTED);
+        g.setTextColor(active ? PhoneTheme.text() : PhoneTheme.muted());
         g.setFontSize(PhoneUi.fs(14));
         g.setHitTestable(false);
         btn.appendChild(g);

@@ -62,8 +62,6 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
     private static final int COL_BG = 0xF20E1116;
     private static final int COL_BORDER = 0xFF39404B;
-    private static final int COL_TEXT = 0xFFE8EDF2;
-    private static final int COL_MUTED = 0xFFB8C4D0;
     private static final int COL_STATUS_BG = 0x99000000;
     /** 页面内容底板：半透明深色，保证文字在任何壁纸/世界背景上可读。 */
     private static final int COL_PAGE_BG = 0x900E1116;
@@ -255,7 +253,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         statusBar.setHitTestable(false);
         SceneNode time = new SceneNode();
         time.setText(CLOCK.get());
-        time.setTextColor(COL_TEXT);
+        time.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         time.setFontSize(fs(16));
         time.setHitTestable(false);
         runtime.bindText(time, CLOCK);
@@ -271,7 +269,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             ? StatCollector.translateToLocal("label.mcphone.default_device") : dev);
         SceneNode devName = new SceneNode();
         devName.setText(DEVICE_NAME.get());
-        devName.setTextColor(COL_TEXT);
+        devName.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         devName.setFontSize(fs(14));
         devName.setMaxTextWidth(panelW - 90);
         devName.setHitTestable(false);
@@ -305,6 +303,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     /** 主屏是否在前（否则有 App 页面打开）。 */
     public boolean isHome() {
         return currentPageId == null;
+    }
+
+    /** 指定 App 页面是否正开着（同步到达后按需重建用）。 */
+    public boolean isPageOpen(String id) {
+        return id != null && id.equals(currentPageId);
     }
 
     /** 打开指定 App 页面（页面型 App）；商店模式下未购付费 App 拦下并提示。 */
@@ -345,7 +348,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     private void buildHomeGrid() {
-        List<IPhoneApp> apps = PhoneApi.orderedVisibleApps();
+        List<IPhoneApp> apps = orderedForHome();
         SceneNode grid = SceneNode.column();
         grid.setFillParentWidth(true);
         grid.setPadding(16);
@@ -353,6 +356,16 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         grid.setScrollable(true);
         grid.setClipChildren(true);
         club.heiqi.uilib.ui.scene.runtime.SceneScrolls.attach(runtime, grid);
+
+        // 拖拽排序共享状态：本轮网格的单元格序（扁平，行优先）与手势状态。
+        final java.util.List<SceneNode> cellNodes = new java.util.ArrayList<>();
+        final java.util.List<String> cellIds = new java.util.ArrayList<>();
+        final HomeDrag drag = new HomeDrag();
+
+        SceneNode dragHint = muted(StatCollector.translateToLocal("msg.mcphone.home_drag_hint"));
+        dragHint.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
+        dragHint.setMaxTextWidth(panelW - 32);
+        grid.appendChild(dragHint);
 
         int perRow = 3;
         int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);
@@ -366,18 +379,56 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             // 固定行高先验：图标盒 + 间距 + 标签行高，避免布局求解器把单元格拉伸。
             row.setPreferredHeight(box + 30);
             for (int j = 0; j < perRow && i + j < apps.size(); j++) {
-                row.appendChild(iconCell(apps.get(i + j), cellW, box));
+                row.appendChild(iconCell(apps.get(i + j), cellW, box, cellNodes, cellIds, drag));
             }
             grid.appendChild(row);
         }
         pageMount = runtime.mount(contentSlot, () -> grid);
     }
 
-    private SceneNode iconCell(IPhoneApp app, int cellW, int box) {
+    /** 主屏展示顺序：按存档隔离的拖拽顺序（HomeGridStore），文件缺失时回落全局顺序表。 */
+    private List<IPhoneApp> orderedForHome() {
+        java.util.List<String> known = new java.util.ArrayList<>();
+        for (IPhoneApp app : PhoneApi.orderedVisibleApps()) known.add(app.id());
+        List<IPhoneApp> out = new java.util.ArrayList<>();
+        for (String id : com.november.mcphone.client.enhance.HomeGridStore.resolveOrder(known)) {
+            IPhoneApp app = PhoneApi.byId(id);
+            if (app != null && PhoneCanvas.isAppEnabled(id)) out.add(app);
+        }
+        return out;
+    }
+
+    /**
+     * 主屏拖拽手势状态（一次网格构建一份）。Qz 没有网格级拖拽控件，这里用
+     * 指针 DOWN/MOVE/UP 自实现最小拖拽：超过阈值激活（激活时捕获指针），
+     * 落点按"指针压在哪个格子"判定，松手插入式重排并按存档持久化。
+     */
+    private static final class HomeDrag {
+
+        /** 超过该位移（像素）才算拖拽，否则视为点击。 */
+        static final int ACTIVATION_THRESHOLD_PX = 10;
+
+        boolean armed;
+        boolean dragging;
+        int pressedIndex = -1;
+        int targetIndex = -1;
+        float pressX;
+        float pressY;
+        /** 拖拽结束后要吞掉的 CLICK 所在格子（避免拖完顺手打开了 App）。 */
+        int suppressedClickIndex = -1;
+    }
+
+    private SceneNode iconCell(IPhoneApp app, int cellW, int box,
+                               java.util.List<SceneNode> cellNodes,
+                               java.util.List<String> cellIds,
+                               HomeDrag drag) {
+        final int index = cellIds.size();
+        cellIds.add(app.id());
         SceneNode cell = SceneNode.column();
         cell.setWidthSizing(SceneNode.WidthSizing.SHRINK);
         cell.setCrossAxisAlign(CrossAxisAlign.CENTER);
         cell.setGap(6);
+        cellNodes.add(cell);
 
         SceneNode iconBox = SceneNode.row();
         iconBox.setWidthSizing(SceneNode.WidthSizing.SHRINK);
@@ -409,7 +460,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         boolean locked = !com.november.mcphone.client.StoreClient.isUnlocked(app);
         label.setText(app.displayName()
             + (locked ? StatCollector.translateToLocal("label.mcphone.store_locked_tag") : ""));
-        label.setTextColor(locked ? COL_MUTED : COL_TEXT);
+        label.setTextColor(locked ? com.november.mcphone.client.enhance.PhoneTheme.muted() : com.november.mcphone.client.enhance.PhoneTheme.text());
         label.setFontSize(fs(14));
         label.setMaxTextWidth(cellW);
         label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
@@ -417,9 +468,113 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
         cell.appendChild(iconBox);
         cell.appendChild(label);
-        runtime.on(cell, SceneEventType.CLICK, (event, ctx) -> activate(app, event.isShiftDown()));
+        runtime.on(cell, SceneEventType.POINTER_DOWN, (event, ctx) -> {
+            drag.armed = true;
+            drag.dragging = false;
+            drag.pressedIndex = index;
+            drag.targetIndex = index;
+            drag.suppressedClickIndex = -1;
+            drag.pressX = ctx.getRawPointerX();
+            drag.pressY = ctx.getRawPointerY();
+        });
+        runtime.on(cell, SceneEventType.POINTER_MOVE, (event, ctx) -> {
+            if (!drag.armed || drag.pressedIndex != index) return;
+            if (!drag.dragging) {
+                float dx = ctx.getRawPointerX() - drag.pressX;
+                float dy = ctx.getRawPointerY() - drag.pressY;
+                if (dx * dx + dy * dy < HomeDrag.ACTIVATION_THRESHOLD_PX * HomeDrag.ACTIVATION_THRESHOLD_PX) {
+                    return;
+                }
+                drag.dragging = true;
+                drag.suppressedClickIndex = index;
+                cell.setOpacity(0.55f);
+                // 捕获指针：拖出格子后 MOVE/UP 仍派发到本节点（同 Qz SceneDragReorder）。
+                ctx.requestPointerCapture();
+            }
+            drag.targetIndex = dropIndexAt(ctx, cell, cellNodes);
+        });
+        runtime.on(cell, SceneEventType.POINTER_UP, (event, ctx) -> {
+            if (drag.dragging && drag.pressedIndex == index) {
+                cell.setOpacity(1.0f);
+                final int from = drag.pressedIndex;
+                final int to = drag.targetIndex;
+                final java.util.List<String> ids = new java.util.ArrayList<>(cellIds);
+                drag.armed = false;
+                drag.dragging = false;
+                drag.pressedIndex = -1;
+                // 改树（重排+重建网格）延迟到分发结束。
+                postAction(() -> commitHomeDrag(ids, from, to));
+            } else {
+                drag.armed = false;
+            }
+        });
+        runtime.on(cell, SceneEventType.POINTER_CANCEL, (event, ctx) -> {
+            if (drag.pressedIndex == index) cell.setOpacity(1.0f);
+            drag.armed = false;
+            drag.dragging = false;
+            drag.pressedIndex = -1;
+        });
+        runtime.on(cell, SceneEventType.CLICK, (event, ctx) -> {
+            if (drag.suppressedClickIndex == index) {
+                drag.suppressedClickIndex = -1;
+                return;
+            }
+            activate(app, event.isShiftDown());
+        });
         return cell;
     }
+
+    /**
+     * 指针当前压在第几格（扁平下标，行优先）。
+     *
+     * <p>坐标口径：Qz 的 absoluteBox 相对场景根；而本节点的局部指针坐标 +
+     * 本节点的根相对框 = 指针的根相对坐标（同 Qz SceneDragReorder 的换算）。
+     * 命不中任何格子（间隙上）取中心最近的格子。</p>
+     */
+    private static int dropIndexAt(club.heiqi.uilib.ui.scene.input.SceneEventContext ctx,
+                                   SceneNode draggedCell,
+                                   java.util.List<SceneNode> cellNodes) {
+        club.heiqi.uilib.ui.scene.layout.AnchorRect draggedBox =
+            club.heiqi.uilib.ui.scene.layout.SceneGeometry.absoluteBox(draggedCell, 0, 0);
+        int px = draggedBox.getX() + ctx.getLocalPointerX();
+        int py = draggedBox.getY() + ctx.getLocalPointerY();
+        int best = -1;
+        long bestDist = Long.MAX_VALUE;
+        for (int i = 0; i < cellNodes.size(); i++) {
+            club.heiqi.uilib.ui.scene.layout.AnchorRect box =
+                club.heiqi.uilib.ui.scene.layout.SceneGeometry.absoluteBox(cellNodes.get(i), 0, 0);
+            long dist = (long) (px - (box.getX() + box.getWidth() / 2)) * (px - (box.getX() + box.getWidth() / 2))
+                + (long) (py - (box.getY() + box.getHeight() / 2)) * (py - (box.getY() + box.getHeight() / 2));
+            if (px >= box.getX() && px < box.getX() + box.getWidth()
+                    && py >= box.getY() && py < box.getY() + box.getHeight()) {
+                return i;
+            }
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /** 拖拽落定：可见 App 内插入式重排，隐藏 App 保持原相对顺序缀后，按存档持久化。 */
+    private static void commitHomeDrag(java.util.List<String> visibleIds, int from, int to) {
+        List<String> seq = new java.util.ArrayList<>(visibleIds);
+        if (from < 0 || from >= seq.size()) return;
+        int target = Math.max(0, Math.min(to, seq.size() - 1));
+        if (from == target) return;
+        String moved = seq.remove(from);
+        seq.add(target, moved);
+
+        List<String> full = new java.util.ArrayList<>(seq);
+        for (IPhoneApp app : PhoneApi.orderedApps()) {
+            if (!full.contains(app.id())) full.add(app.id());
+        }
+        com.november.mcphone.client.enhance.HomeGridStore.saveOrder(full);
+        PhoneUi ui = ACTIVE;
+        if (ui != null) ui.rebuildPage();
+    }
+
 
     /** 图标点击：直达型立即执行（传送支持 Shift+点击绑定）；页面型 Shift+点击走 onShiftActivate。 */
     private void activate(IPhoneApp app, boolean shift) {
@@ -461,11 +616,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     public static SceneNode title(String value) {
-        return text(value, COL_TEXT, 20);
+        return text(value, com.november.mcphone.client.enhance.PhoneTheme.text(), 20);
     }
 
     public static SceneNode muted(String value) {
-        return text(value, COL_MUTED, 13);
+        return text(value, com.november.mcphone.client.enhance.PhoneTheme.muted(), 13);
     }
 
     // ===================== 时钟与壁纸 =====================

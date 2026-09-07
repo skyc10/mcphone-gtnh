@@ -28,6 +28,9 @@ public final class ClientHooks {
     /** UnlockSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
     public static volatile java.util.List<String> pendingUnlockSync;
 
+    /** PlayTimeSync 包在 netty 线程落地，客户端 tick 主线程应用（游玩时长快照）。 */
+    public static volatile com.november.mcphone.client.enhance.PlayTimeClient.Snapshot pendingPlayTimeSync;
+
     private static String lastAe2GuiLogged;
 
     private static boolean cameraMode;
@@ -107,6 +110,21 @@ public final class ClientHooks {
         if (unlock != null) {
             pendingUnlockSync = null;
             StoreClient.onUnlockSync(unlock);
+        }
+        // 服务端→客户端游玩时长快照（netty 线程缓存，主线程应用）。
+        com.november.mcphone.client.enhance.PlayTimeClient.Snapshot playTime = pendingPlayTimeSync;
+        if (playTime != null) {
+            pendingPlayTimeSync = null;
+            com.november.mcphone.client.enhance.PlayTimeClient.onSync(playTime);
+            com.november.mcphone.client.enhance.PlayTimeClient.refreshClockPage();
+        }
+        // 离开世界：清空时长缓存与问候状态（换存档后未重新同步前不得展示旧值）。
+        if (mc.theWorld == null) {
+            com.november.mcphone.client.enhance.PlayTimeClient.reset();
+            com.november.mcphone.client.enhance.GreetingToast.onWorldLeave();
+        } else if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
+            // 手机打开期间做一次性问候（欢迎/深夜/连续 3h/世界总 100h）。
+            com.november.mcphone.client.enhance.GreetingToast.onClientTick();
         }
     }
 
