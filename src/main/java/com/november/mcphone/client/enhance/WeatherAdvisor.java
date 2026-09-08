@@ -49,17 +49,19 @@ public final class WeatherAdvisor {
         if (world == null) return Kind.NONE;
         // 无天空维度（下界/末地）直接无天气（GTNH 映射：WorldProvider.hasNoSky 字段）。
         if (world.provider.hasNoSky) return Kind.NONE;
-        if (!world.isRaining()) return Kind.CLEAR;
-        if (world.isThundering()) return Kind.THUNDER;
+        boolean raining = world.isRaining();
+        if (!raining) return Kind.CLEAR;
 
+        // 先按群系决定"落不落东西"，再判雷暴：isThundering 是全局开关，
+        // 沙漠（canSpawnLightningBolt=false）上空打雷也一滴不落，不能报 THUNDER。
         BiomeGenBase biome = world.getBiomeGenForCoords(
             (int) Math.floor(posX), (int) Math.floor(posZ));
-        if (biome == null) return Kind.RAIN;
+        if (biome == null) return world.isThundering() ? Kind.THUNDER : Kind.RAIN;
         // 雪原/冷群系落雪；沙漠等 enableRain=false 的群系什么都不落。
         // 1.7.10 该映射里"本群系会下雨"= canSpawnLightningBolt()（雪群系恒 false，故先判雪）。
         if (biome.getEnableSnow()) return Kind.SNOW;
-        if (biome.canSpawnLightningBolt()) return Kind.RAIN;
-        return Kind.DRY;
+        if (!biome.canSpawnLightningBolt()) return Kind.DRY;
+        return world.isThundering() ? Kind.THUNDER : Kind.RAIN;
     }
 
     /** 天气名。 */
