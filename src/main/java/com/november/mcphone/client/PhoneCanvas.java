@@ -211,4 +211,34 @@ public final class PhoneCanvas {
         p.setProperty(KEY_FONT_SCALE, String.valueOf(Math.max(0.5f, Math.min(5.0f, scale))));
         save(p);
     }
+
+    // ===================== 每 App 快捷键 =====================
+
+    /** 每 App 快捷键（appId = 绑定串）。绑定串格式：修饰键前缀（SHIFT+/CTRL+/ALT+，
+     * 按固定顺序）+ 主键名（Keyboard.getKeyName 的返回值），如 "CTRL+K"、"LSHIFT+F5"。 */
+    public static java.util.Map<String, String> getAppHotkeys() {
+        Properties p = load();
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        for (String key : p.stringPropertyNames()) {
+            if (key.startsWith("hotkey.")) {
+                String v = p.getProperty(key, "").trim();
+                if (!v.isEmpty()) out.put(key.substring("hotkey.".length()), v);
+            }
+        }
+        return out;
+    }
+
+    public static String getHotkey(String appId) {
+        return load().getProperty("hotkey." + appId, "").trim();
+    }
+
+    public static void setHotkey(String appId, String binding) {
+        Properties p = load();
+        if (binding == null || binding.trim().isEmpty()) {
+            p.remove("hotkey." + appId);
+        } else {
+            p.setProperty("hotkey." + appId, binding.trim());
+        }
+        save(p);
+    }
 }

@@ -50,6 +50,12 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     /** 当前打开的手机实例（时钟 tick 用）；随 dispose 清空。 */
     public static volatile PhoneUi ACTIVE;
 
+    /**
+     * 快捷键捕获态：非 null 时值为待绑定 appId，下一次按键（PhoneScreen.keyTyped
+     * 拦截）作为该 App 的热键。仅 appmgr 页进入/退出。
+     */
+    public static volatile String hotkeyCaptureTarget;
+
     /** 状态栏时钟（世界时间），ClientHooks 每客户端 tick 驱动。 */
     private static final Signal<String> CLOCK = Signal.create("--:--");
     private static String lastClock = "";

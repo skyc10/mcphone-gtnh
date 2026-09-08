@@ -85,8 +85,7 @@ public final class ClientHooks {
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (keyPhone.isPressed()) {
-            if (cameraMode) {
+        if (keyPhone.isPressed()) {            if (cameraMode) {
                 // P 退出相机模式：回到手机界面而不是完全退出。
                 setCameraMode(false);
                 ItemStack phone = findPhone(mc);
@@ -110,6 +109,8 @@ public final class ClientHooks {
         if (keyShutter.isPressed() && cameraMode && mc.currentScreen == null) {
             CameraHandler.pendingCapture = true;
         }
+        // 每 App 快捷键路由（无 GUI 时才会到这里；GUI 打开时键走 GuiScreen）。
+        AppHotkeys.onKeyInput(mc, Keyboard.getEventKey(), Keyboard.getEventKeyState());
     }
 
     @SubscribeEvent

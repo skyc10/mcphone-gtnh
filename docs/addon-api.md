@@ -139,3 +139,24 @@ cfg.putInt("level", 3);
 4. 联网操作用你自己的网络包（`ctx.sendToServer` 仅能发 MCphone 通道已注册的消息）。
 5. App 全部是客户端对象；服务端逻辑写在你的 mod 里。
 6. 设置页调整界面/字体缩放会重建页面——不要跨重建缓存场景节点引用。
+
+## 八、每 App 快捷键
+
+玩家可以在手机"应用管理"页为任意 App 绑定一个键盘快捷键：点该行的"键"按钮
+进入捕获态，再按目标组合键即完成绑定。格式为 `主键` 或
+`SHIFT+主键` / `CTRL+主键` / `ALT+主键`（可叠加，如 `CTRL+SHIFT+K`），
+持久化在 `settings.properties` 的 `hotkey.<appId>`。Esc 取消捕获；
+重复按同一主键（无修饰键）清除绑定。绑定冲突只警告不阻止。
+
+### 触发行为与 opensInsidePhone()
+
+按键触发时调用你的 `IPhoneApp.onActivate(...)`。默认行为由
+`opensInsidePhone()` 决定（默认 `!isDirectAction()`）：
+
+- **页面型 App**（默认）：先打开手机界面，再进入你的页面。
+- **直达型 App**（`isDirectAction() == true`）：不开机、不弹界面，直接回调
+  `onActivate`——适合传送、拍照等一按即用的动作。若你的 `onActivate`
+  自行打开了 GuiScreen，该屏幕会保留。
+
+热键只在无 GUI 打开、玩家存活且非 spectator 时生效；仅支持键盘
+（修饰键按物理左右 Shift/Ctrl/Alt 任一即可）。App 被玩家停用后热键不触发。

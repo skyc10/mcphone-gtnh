@@ -29,6 +29,7 @@ import com.november.mcphone.api.IPhoneApp;
 import com.november.mcphone.api.PhoneApi;
 import com.november.mcphone.api.PhoneWidgets;
 import com.november.mcphone.client.PhoneCanvas;
+import com.november.mcphone.client.AppHotkey;
 import com.november.mcphone.client.PhotoStore;
 import com.november.mcphone.client.enhance.PhoneTheme;
 import com.november.mcphone.client.TimeUtil;
@@ -766,7 +767,18 @@ public final class ScenePages {
         if (store) {
             page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.store_page_hint")));
         }
+        // 快捷键捕获态横幅：下一次按键（任意行点"键"后）将绑定为该 App 的热键。
+        if (PhoneUi.hotkeyCaptureTarget != null) {
+            SceneNode cap = new SceneNode();
+            cap.setText(StatCollector.translateToLocalFormatted(
+                "msg.mcphone.hotkey_capturing", PhoneUi.hotkeyCaptureTarget));
+            cap.setTextColor(0xFF9CE89C);
+            cap.setFontSize(PhoneUi.fs(14));
+            cap.setHitTestable(false);
+            page.appendChild(cap);
+        }
         java.util.List<IPhoneApp> ordered = PhoneApi.orderedApps();
+        boolean capturing = PhoneUi.hotkeyCaptureTarget != null;
         for (int appIndex = 0; appIndex < ordered.size(); appIndex++) {
             IPhoneApp app = ordered.get(appIndex);
             final boolean first = appIndex == 0;
@@ -801,6 +813,7 @@ public final class ScenePages {
             row.appendChild(state);
             row.appendChild(orderButton(ui, app.id(), "↑", first ? null : -1));
             row.appendChild(orderButton(ui, app.id(), "↓", last ? null : 1));
+            row.appendChild(hotkeyButton(ui, app.id(), capturing));
             if (!system) {
                 // 整行可点击切换启用/停用；
                 // ↑/↓ 按钮内部 stopPropagation，不会误触开关。
@@ -949,6 +962,39 @@ public final class ScenePages {
         } else {
             btn.setHitTestable(false);
         }
+        return btn;
+    }
+
+    /**
+     * 每 App 快捷键按钮：显示当前绑定（如 "CTRL+K"）或 "—"；点击进入捕获态，
+     * 由 PhoneScreen.keyTyped 拦截下一次按键。捕获中该行高亮。stopPropagation
+     * 避免冒泡触发整行的启停切换。
+     */
+    private static SceneNode hotkeyButton(PhoneUi ui, String appId, boolean capturing) {
+        AppHotkey current = AppHotkey.forApp(appId);
+        String label = current != null ? current.displayName() : "—";
+        boolean pending = capturing && appId.equals(PhoneUi.hotkeyCaptureTarget);
+        SceneNode btn = SceneNode.row();
+        btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        btn.setPreferredWidth(64);
+        btn.setPreferredHeight(24);
+        btn.setCornerRadius(6);
+        btn.setBackgroundColor(pending ? 0x886FB2E8 : 0x22FFFFFF);
+        btn.setMainAxisAlign(MainAxisAlign.CENTER);
+        btn.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        SceneNode g = new SceneNode();
+        g.setText(pending ? "…" : label);
+        g.setTextColor(pending ? PhoneTheme.text() : PhoneTheme.muted());
+        g.setFontSize(PhoneUi.fs(12));
+        g.setHitTestable(false);
+        btn.appendChild(g);
+        ui.runtime().on(btn, SceneEventType.CLICK, (e, dispatch) -> {
+            dispatch.stopPropagation();
+            PhoneUi.postAction(() -> {
+                PhoneUi.hotkeyCaptureTarget = appId;
+                ui.rebuildPage();
+            });
+        });
         return btn;
     }
 
