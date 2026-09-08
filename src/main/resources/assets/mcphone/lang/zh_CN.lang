@@ -15,6 +15,7 @@ app.mcphone.camera=相机
 app.mcphone.gallery=相册
 app.mcphone.settings=设置
 app.mcphone.appmgr=应用管理
+app.mcphone.store=应用商店
 
 weather.mcphone.clear=晴
 weather.mcphone.rain=雨
@@ -103,9 +104,11 @@ label.mcphone.button_scale=按钮字号（50–250%）
 
 label.mcphone.store_mode=商店模式
 msg.mcphone.store_hint=开启后内建付费应用需购买解锁；附属应用始终免费可用。
-msg.mcphone.store_page_hint=商店模式：付费应用购买后可用，卸载重装免费。
-label.mcphone.store_locked_tag=（未购买）
-msg.mcphone.store_locked=§7[MC手机] §e该应用未购买：请到「应用管理」购买。
+msg.mcphone.store_page_hint=付费应用请到「应用商店」购买。
+msg.mcphone.store_locked=§7[MC手机] §e该应用未购买：请到「应用商店」购买。
+msg.mcphone.store_closed_hint=商店未开启，可在设置中开启。
+msg.mcphone.store_empty=所有付费应用均已购买。
+msg.mcphone.store_footnote=购买后立即解锁，费用从背包扣除。
 btn.mcphone.buy=购买
 state.mcphone.system=系统
 

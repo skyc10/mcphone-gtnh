@@ -381,10 +381,16 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         pageMount = runtime.mount(contentSlot, () -> grid);
     }
 
-    /** 主屏展示顺序：按存档隔离的拖拽顺序（HomeGridStore），文件缺失时回落全局顺序表。 */
+    /**
+     * 主屏展示顺序：按存档隔离的拖拽顺序（HomeGridStore），文件缺失时回落全局顺序表。
+     * 商店模式开启时，未购付费 App 不上主屏（购买入口在应用商店 App）。
+     */
     private List<IPhoneApp> orderedForHome() {
         java.util.List<String> known = new java.util.ArrayList<>();
-        for (IPhoneApp app : PhoneApi.orderedVisibleApps()) known.add(app.id());
+        for (IPhoneApp app : PhoneApi.orderedVisibleApps()) {
+            if (com.november.mcphone.client.StoreClient.needsPurchase(app)) continue;
+            known.add(app.id());
+        }
         List<IPhoneApp> out = new java.util.ArrayList<>();
         for (String id : com.november.mcphone.client.enhance.HomeGridStore.resolveOrder(known)) {
             IPhoneApp app = PhoneApi.byId(id);
@@ -452,10 +458,8 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         }
 
         SceneNode label = new SceneNode();
-        boolean locked = !com.november.mcphone.client.StoreClient.isUnlocked(app);
-        label.setText(app.displayName()
-            + (locked ? StatCollector.translateToLocal("label.mcphone.store_locked_tag") : ""));
-        label.setTextColor(locked ? com.november.mcphone.client.enhance.PhoneTheme.muted() : com.november.mcphone.client.enhance.PhoneTheme.text());
+        label.setText(app.displayName());
+        label.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         label.setFontSize(fs(14));
         label.setMaxTextWidth(cellW);
         label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);

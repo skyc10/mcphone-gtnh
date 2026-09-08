@@ -36,6 +36,7 @@ public final class BuiltinApps {
         list.add(chat());
         list.add(settings());
         list.add(appManager());
+        list.add(store());
         return list;
     }
 
@@ -149,6 +150,23 @@ public final class BuiltinApps {
             @Override
             public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
                 return ScenePages.appManagerPage(ui);
+            }
+        };
+    }
+
+    /** 应用商店：列出待购的内建付费 App（购买走服务端扣物校验，本 App 自身免费）。 */
+    private static IPhoneApp store() {
+        return new Page("store", "app.mcphone.store", "店", 0xFF2E9E4E) {
+
+            @Override
+            public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
+                return ScenePages.storePage(ui);
+            }
+
+            @Override
+            public ItemStack iconItem() {
+                // 绿宝石物品图标（与末影箱图标的画法一致；取静态字段无需判空）。
+                return new ItemStack(net.minecraft.init.Items.emerald);
             }
         };
     }

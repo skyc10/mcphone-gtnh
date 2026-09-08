@@ -15,6 +15,7 @@ app.mcphone.camera=Camera
 app.mcphone.gallery=Gallery
 app.mcphone.settings=Settings
 app.mcphone.appmgr=Apps
+app.mcphone.store=App Store
 
 weather.mcphone.clear=Clear
 weather.mcphone.rain=Rain
@@ -102,9 +103,11 @@ label.mcphone.button_scale=
 label.mcphone.button_scale=Button size (50-250%)
 label.mcphone.store_mode=Store mode
 msg.mcphone.store_hint=Paid built-in apps must be purchased to unlock; addon apps stay free.
-msg.mcphone.store_page_hint=Store mode: paid apps must be purchased; reinstall after uninstall is free.
-label.mcphone.store_locked_tag= (locked)
-msg.mcphone.store_locked=§7[MCphone] §eApp not purchased: buy it in App Manager.
+msg.mcphone.store_page_hint=Paid apps are purchased in the App Store.
+msg.mcphone.store_locked=§7[MCphone] §eApp not purchased: buy it in the App Store.
+msg.mcphone.store_closed_hint=The store is disabled. Enable it in Settings.
+msg.mcphone.store_empty=All paid apps have been purchased.
+msg.mcphone.store_footnote=Unlocks immediately after purchase; the cost is taken from your inventory.
 btn.mcphone.buy=Buy
 state.mcphone.system=System
 

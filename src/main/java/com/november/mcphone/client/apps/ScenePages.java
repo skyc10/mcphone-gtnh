@@ -7,6 +7,7 @@ import java.util.List;
 import javax.imageio.ImageIO;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.StatCollector;
 
 import club.heiqi.uilib.ui.image.HostImageSource;
@@ -760,7 +761,7 @@ public final class ScenePages {
 
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_hint")));
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_order_hint")));
-        // 商店模式：本页升级为商店页（展示价格/购买）；关闭时与旧版完全一致。
+        // 商店模式：购买入口已移交应用商店，本页只管启用/停用；关闭时与旧版完全一致。
         boolean store = com.november.mcphone.client.StoreClient.isEnabled();
         if (store) {
             page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.store_page_hint")));
@@ -772,7 +773,6 @@ public final class ScenePages {
             final boolean last = appIndex == ordered.size() - 1;
             final boolean enabled = PhoneCanvas.isAppEnabled(app.id());
             boolean system = store && isSystemApp(app.id());
-            boolean needsPurchase = store && com.november.mcphone.client.StoreClient.needsPurchase(app);
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
@@ -787,35 +787,22 @@ public final class ScenePages {
             label.setHitTestable(false);
             row.appendChild(label);
             row.appendChild(spacer());
-            if (needsPurchase) {
-                // 价格 + 购买按钮：购买走服务端校验扣物，成功后 UnlockSync 触发本页重建。
-                String price = com.november.mcphone.client.StoreClient.priceText(app);
-                SceneNode priceNode = new SceneNode();
-                priceNode.setText(price == null ? "" : price);
-                priceNode.setTextColor(PhoneTheme.muted());
-                priceNode.setFontSize(PhoneUi.fs(14));
-                priceNode.setHitTestable(false);
-                row.appendChild(priceNode);
-                mountPrimaryButton(ui, row, StatCollector.translateToLocal("btn.mcphone.buy"),
-                    () -> NetworkHandler.sendToServer(new NetworkHandler.PurchaseApp(app.id())));
+            SceneNode state = new SceneNode();
+            if (system) {
+                // 商店模式下系统 App 不可卸载。
+                state.setText(StatCollector.translateToLocal("state.mcphone.system"));
+                state.setTextColor(PhoneTheme.muted());
             } else {
-                SceneNode state = new SceneNode();
-                if (system) {
-                    // 商店模式下系统 App 不可卸载。
-                    state.setText(StatCollector.translateToLocal("state.mcphone.system"));
-                    state.setTextColor(PhoneTheme.muted());
-                } else {
-                    state.setText(StatCollector.translateToLocal(enabled ? "state.mcphone.on" : "state.mcphone.off"));
-                    state.setTextColor(enabled ? 0xFF9CE89C : 0xFFE0A0A0);
-                }
-                state.setFontSize(PhoneUi.fs(14));
-                state.setHitTestable(false);
-                row.appendChild(state);
+                state.setText(StatCollector.translateToLocal(enabled ? "state.mcphone.on" : "state.mcphone.off"));
+                state.setTextColor(enabled ? 0xFF9CE89C : 0xFFE0A0A0);
             }
+            state.setFontSize(PhoneUi.fs(14));
+            state.setHitTestable(false);
+            row.appendChild(state);
             row.appendChild(orderButton(ui, app.id(), "↑", first ? null : -1));
             row.appendChild(orderButton(ui, app.id(), "↓", last ? null : 1));
-            if (!needsPurchase && !system) {
-                // 整行可点击切换（商店模式下即卸载/安装：已购 App 卸载后免费重装）；
+            if (!system) {
+                // 整行可点击切换启用/停用；
                 // ↑/↓ 按钮内部 stopPropagation，不会误触开关。
                 ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
                     PhoneCanvas.setAppEnabled(app.id(), !PhoneCanvas.isAppEnabled(app.id()));
@@ -830,6 +817,93 @@ public final class ScenePages {
     /** 系统 App（设置/应用管理）：商店模式下不可卸载。 */
     private static boolean isSystemApp(String appId) {
         return "settings".equals(appId) || "appmgr".equals(appId);
+    }
+
+    // ===================== 应用商店 =====================
+
+    /**
+     * 独立商店页：仅商店模式开启时，列出「付费且未购」的内建 App（已购/免费的
+     * 不出现——它们直接在主屏）。购买走服务端扣物校验，成功回包 UnlockSync
+     * 触发 {@link PhoneUi#onStoreSync()} 重建本页，无需本地刷新逻辑。
+     */
+    public static SceneNode storePage(PhoneUi ui) {
+        SceneNode page = scrollColumn(ui);
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.store")));
+
+        if (!com.november.mcphone.client.StoreClient.isEnabled()) {
+            page.appendChild(PhoneUi.muted(
+                StatCollector.translateToLocal("msg.mcphone.store_closed_hint")));
+            return page;
+        }
+
+        java.util.List<IPhoneApp> paid = new java.util.ArrayList<>();
+        for (IPhoneApp app : PhoneApi.orderedApps()) {
+            if (com.november.mcphone.client.StoreClient.needsPurchase(app)) paid.add(app);
+        }
+        if (paid.isEmpty()) {
+            page.appendChild(PhoneUi.muted(
+                StatCollector.translateToLocal("msg.mcphone.store_empty")));
+        }
+        for (int i = 0; i < paid.size(); i++) {
+            final IPhoneApp app = paid.get(i);
+            SceneNode row = SceneNode.row();
+            row.setFillParentWidth(true);
+            row.setCrossAxisAlign(CrossAxisAlign.CENTER);
+            row.setGap(8);
+            row.setPadding(8, 8, 8, 8);
+            row.setCornerRadius(8);
+            row.setBackgroundColor(COL_PANEL);
+            row.setBorderWidth(1);
+            row.setBorderColor(COL_BORDER);
+            // 图标：与主屏同源（纹理 > 物品 > 字形），小号底板。
+            SceneNode iconBox = SceneNode.row();
+            iconBox.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+            iconBox.setPreferredWidth(24);
+            iconBox.setPreferredHeight(24);
+            iconBox.setCornerRadius(6);
+            iconBox.setBackgroundColor(app.iconColor());
+            iconBox.setBorderWidth(1);
+            iconBox.setBorderColor(0x2EFFFFFF);
+            iconBox.setMainAxisAlign(MainAxisAlign.CENTER);
+            iconBox.setCrossAxisAlign(CrossAxisAlign.CENTER);
+            iconBox.setHitTestable(false);
+            ItemStack item = app.iconItem();
+            String tex = app.iconTexture();
+            if (tex != null) {
+                iconBox.setImageSource(HostImageSource.texture(
+                    new net.minecraft.util.ResourceLocation(tex), 128, 128));
+            } else if (item != null) {
+                iconBox.setImageSource(HostImageSource.itemIcon(item));
+            } else {
+                SceneNode glyph = new SceneNode();
+                glyph.setText(app.iconGlyph());
+                glyph.setTextColor(0xFFFFFFFF);
+                glyph.setFontSize(PhoneUi.fs(13));
+                glyph.setHitTestable(false);
+                iconBox.appendChild(glyph);
+            }
+            row.appendChild(iconBox);
+            SceneNode name = new SceneNode();
+            name.setText(app.displayName());
+            name.setTextColor(PhoneTheme.text());
+            name.setFontSize(PhoneUi.fs(15));
+            name.setHitTestable(false);
+            row.appendChild(name);
+            row.appendChild(spacer());
+            String price = com.november.mcphone.client.StoreClient.priceText(app);
+            SceneNode priceNode = new SceneNode();
+            priceNode.setText(price == null ? "" : price);
+            priceNode.setTextColor(PhoneTheme.muted());
+            priceNode.setFontSize(PhoneUi.fs(14));
+            priceNode.setHitTestable(false);
+            row.appendChild(priceNode);
+            mountPrimaryButton(ui, row, StatCollector.translateToLocal("btn.mcphone.buy"),
+                () -> NetworkHandler.sendToServer(new NetworkHandler.PurchaseApp(app.id())));
+            page.appendChild(row);
+        }
+        page.appendChild(PhoneUi.muted(
+            StatCollector.translateToLocal("msg.mcphone.store_footnote")));
+        return page;
     }
 
     /**
