@@ -93,6 +93,19 @@ public final class ChatClient {
 
     private ChatClient() {}
 
+    /**
+     * 离开世界（换服/回主菜单）时复位全部静态状态：会话表、消息缓存、图片缓存、
+     * 待应用队列。旧服的会话/消息不得带到新服（ClientHooks world==null 调用）。
+     */
+    public static void reset() {
+        friends = new ArrayList<>();
+        requests = new ArrayList<>();
+        addable = new ArrayList<>();
+        history = new LinkedHashMap<>();
+        IMAGE_CACHE.clear();
+        PENDING.clear();
+    }
+
     // ===================== netty 线程入口（只入队） =====================
 
     public static void onConvSync(NetworkHandler.ChatConvSync msg) {
@@ -140,8 +153,11 @@ public final class ChatClient {
 
     private static void applyMsgPush(NetworkHandler.ChatMsgPush msg) {
         if (msg.kind == 0) {
-            // 历史批：整体替换该会话（打开会话页时的拉取响应）。
-            List<MsgView> list = new ArrayList<>();
+            // 历史批：服务端分批连续下发（每批 ≤ HISTORY_BATCH 条）。首批（batchStart）
+            // 先清空该会话缓存再追加，后续批直接追加——既支持多批也避免二次拉取重复。
+            List<MsgView> list = msg.batchStart
+                ? new ArrayList<>()
+                : new ArrayList<>(history.getOrDefault(msg.peer, new ArrayList<>()));
             for (NetworkHandler.ChatMsgPush.MsgMeta m : msg.messages) {
                 list.add(toView(m));
             }
@@ -192,8 +208,16 @@ public final class ChatClient {
         NetworkHandler.sendToServer(new NetworkHandler.ChatImage(1, peer, imageId, null, 0, 0));
     }
 
+    /**
+     * 标记已读：带上该会话最后一条已知消息的时间戳（服务端水位只前进不后退）。
+     * 取不到（会话刚打开还没收到历史）时退化为当前时间。
+     */
     public static void markRead(String peer) {
-        NetworkHandler.sendToServer(new NetworkHandler.ChatMsgSend(2, peer, "", 0));
+        List<MsgView> list = history.get(peer);
+        long time = (list != null && !list.isEmpty())
+            ? list.get(list.size() - 1).time
+            : System.currentTimeMillis();
+        NetworkHandler.sendToServer(new NetworkHandler.ChatMsgSend(2, peer, "", time));
     }
 
     // ===================== 发送 =====================

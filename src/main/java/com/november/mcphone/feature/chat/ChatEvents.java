@@ -29,9 +29,11 @@ public final class ChatEvents {
 
     private ChatEvents() {}
 
-    /** NetworkHandler.init() 调用（common 侧，Forge 总线登录事件只在服务端触发）。 */
+    /** NetworkHandler.init() 调用（common 侧；登录事件只在服务端触发）。 */
     public static void register() {
-        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new LoginHook());
+        // PlayerLoggedInEvent 由 FML post 到 FMLCommonHandler.bus()（1.7.10 双总线
+        // 未合一），注册到 Forge 总线永不触发（同 StoreEvents，见踩坑清单）。
+        FMLCommonHandler.instance().bus().register(new LoginHook());
     }
 
     public static void scheduleTeleport(String travelerName, String targetName) {

@@ -77,17 +77,23 @@ public final class ChatService {
             }
             case 1: {
                 data.markRead(self.getUniqueID(), peer, System.currentTimeMillis());
-                NetworkHandler.INSTANCE.sendTo(
-                    NetworkHandler.ChatMsgPush.history(
-                        peer.toString(),
-                        data.messages(self.getUniqueID(), peer),
-                        self.getUniqueID()),
-                    self);
+                // 历史分批发送：满 200 条 × 600B 文本会撑爆 32KB 包上限，
+                // 每批 ≤ ChatMsgPush.HISTORY_BATCH 条连续下发（客户端按批追加）。
+                List<Msg> msgs = data.messages(self.getUniqueID(), peer);
+                for (int i = 0; i < msgs.size(); i += NetworkHandler.ChatMsgPush.HISTORY_BATCH) {
+                    List<Msg> batch = msgs.subList(
+                        i, Math.min(msgs.size(), i + NetworkHandler.ChatMsgPush.HISTORY_BATCH));
+                    NetworkHandler.INSTANCE.sendTo(
+                        NetworkHandler.ChatMsgPush.history(
+                            peer.toString(), batch, self.getUniqueID(), i == 0),
+                        self);
+                }
                 syncTo(self);
                 break;
             }
             case 2: {
-                data.markRead(self.getUniqueID(), peer, readTime);
+                // 不信任客户端时间：统一用服务器当前时间盖水位（客户端字段仅兼容保留）。
+                data.markRead(self.getUniqueID(), peer, System.currentTimeMillis());
                 syncTo(self);
                 break;
             }
@@ -110,6 +116,12 @@ public final class ChatService {
             || w > 4096 || h > 4096) {
             self.addChatMessage(new ChatComponentText(
                 "§7[MC手机] §c图片发送失败：超过服务器限制（" + ChatConfig.chatImageMaxKb() + "KB）。"));
+            return;
+        }
+        // JPEG 魔数校验（FF D8）：不合法字节流直接拒收，防垃圾数据入库。
+        if ((jpeg[0] & 0xFF) != 0xFF || (jpeg[1] & 0xFF) != 0xD8) {
+            self.addChatMessage(new ChatComponentText(
+                "§7[MC手机] §c图片发送失败：不是有效的 JPEG。"));
             return;
         }
         ChatWorldData data = data();
