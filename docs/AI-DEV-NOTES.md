@@ -75,15 +75,24 @@ com.november.mcphone
 19. **主对话外发jar**：给用户装 jar 时**先确认 build 成功再复制**（曾把编译失败的旧 jar 推出去过）。
 20. 仓库 policy：master 干净线性；完整过程历史在 `dev-history` 分支；发版 = 打 tag 推送（CI 的 release-tags 工作流自动构建 4 个 jar 并发 Release，随后用 `gh release edit` 补中文说明）；版本号 bug 修复递增 patch。
 
-## 4. 当前状态（v1.0.2）
+## 4. 当前状态（v1.0.3-dev，2026-09-08 合并商店/聊天/便签/补齐包后）
 
 - 已发布：v1.0.0（首版）→ v1.0.1（ME 修复）→ v1.0.2（相册滚动修复）。
-- 已验证正常：主屏 10 图标、时钟/天气/便签/设置/应用管理、末影箱直达、传送（含跨维度）、相册设壁纸、拍照纯净画面、退出 15s 自动结束、ME 终端（本体验证至"内置终端正常 + UWT 槽位同步修复后待复测"）。
+- v1.0.3-dev 新增（构建 mcphone-v1.0.2-master.20+e525aefde8，已过 GTNH 2.9.0-beta-3 服务端集成启动验证，待用户手测后发版）：
+  - **应用商店**（net 包 5/6）：设置页「商店模式」开关默认关=完全旧行为；开启后内建付费 App 需购买（末影箱 App=末影箱×1，服务端扣物，WorldSavedData `mcphone.store` 记账）；附属 App 永远免费已装；`api/store/IAppPriceProvider` SPI 预留（EMC 接入点，本轮未接 ProjectE）。
+  - **聊天 App**（net 包 7-11）：好友申请/同意/拒绝/删除、会话气泡页、离线消息、相册发照片（JPEG 压缩≤8KB 按需拉取）、点好友传送（服务端开关可拒）；存 `mcphone.chat`；配置 config/mcphone-chat.cfg（allowFriendTeleport/allowChatImages/chatImageMaxKb）。GIF 表情包本轮砍掉。
+  - **便签服务端持久化**（net 包 12-14）：随存档走（`mcphone.notes`），登录全量同步；本地旧便签首次登录自动导入（本地文件保留为备份）；详情页「印成书」（成书入包/满则掉落；`<存档>/mcphone/notes.cfg` 可开关印书扣空白书与笔，默认免费）。
+  - **低成本补齐包**（net 包 15-17）：时钟问候语+游玩时长（里程碑一次性持久化）、天气按群系雨雪+活动建议、设置页主题色/预设壁纸、主屏图标拖拽排序（per-save 持久化）。
+- 附属同步状态：browser 已回归（MCEF 惰性初始化+看门狗条件化，首次打开浏览器大屏才起 CEF，首次打开卡 1-2s 属预期；未初始化时退出零动作）；music 0.2.0 加搜索点歌 UI（桥接 FMusic `/music search` 指令，播放控制仍归 FMusic）；wiki 无改动。三者均用 v1.0.2-master.20 dev jar 重编译通过。
+- MCEF 资源镜像：https://github.com/skyc10/mcef-resources （release v1，42 资源+config2.json 全 SHA-1 校验）；用 research/MCEF-1.7.10-mirror.jar + config/MCEF.cfg `forcedMirror` 启用（见 browser 仓库 MCEF-PATCH-NOTES.md 补丁 3）。
+- 服务端测试实例：/home/c/gtnh-290b3/server（GTNH 2.9.0-beta-3，eula 已设，-Xmx3G；启动/停止见其 README-TEST.md）。集成验证方式：放 jar→启动→日志等 Done→grep mcphone 异常→kill -TERM。
 - 已知限制/待办：
   - **便签/输入框文字放大**：受 #5 限制，等 Qz 上游补丁（issue 已拟好交给用户）；
-  - **附属浏览器 App**（mcphone-addon-browser，用户自研，已从 mods 移出待回归）：回归时做 MCEF 惰性初始化根治退出挂起；`docs/addon-browser-prompt.md`、`docs/addon-wiki-prompt.md` 是其开发提示词；
+  - 聊天/便签/商店全部为 v1.0.3-dev 新代码，**仅过了编译+服务端启动冒烟，UI 与多人链路待用户手测**（清单见本轮交付总结）；
+  - OpenEnderChest 包未做服务端门禁（服务端无法感知客户端商店开关，购买已走服务端权威校验）；
+  - 便签导入在「服务端删光+本地备份残留」场景会再导一次（每会话一次），如在意后续加服务端已导入标记；
   - UWT 打开若再异常：先用 #17 的两行日志对照手持/手机路径；
-  - `gen_icons.py` 可重新生成 10 枚应用图标（输出 `assets/mcphone/textures/ui/`）。
+  - `gen_icons.py` 可重新生成应用图标（输出 `assets/mcphone/textures/ui/`）。
 
 ## 5. 工作规约（与用户约定，务必遵守）
 
