@@ -18,7 +18,8 @@ public class ClientProxy extends CommonProxy {
     @SideOnly(Side.CLIENT)
     public void initClientHooks() {
         ClientHooks.preInit();
-        // 退出看门狗：shutdown 钩子阶段挂起（如 MCEF/JCEF 关闭阻塞）时 15s 后强制结束。
+        // 退出保底看门狗 v2：注册即启动的 daemon 轮询线程，检测到退出开始后
+        // 按多级时间线（25s/35s）强制结束进程；-Dmcphone.exitwatchdog=false 可禁用。
         ForceExitWatchdog.register();
     }
 
