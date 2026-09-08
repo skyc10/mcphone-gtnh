@@ -31,8 +31,39 @@ public final class ClientHooks {
 
     /** PlayTimeSync 包在 netty 线程落地，客户端 tick 主线程应用（游玩时长快照）。 */
     public static volatile com.november.mcphone.client.enhance.PlayTimeClient.Snapshot pendingPlayTimeSync;
-    /** NoteSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
-    public static volatile java.util.List<com.november.mcphone.feature.notes.Note> pendingNoteSync;
+
+    /**
+     * NoteSync 分批包收齐后的完整列表队列（netty 线程入队，客户端 tick 主线程出队）。
+     * 只有在累加缓冲收齐 total 条后才入队一份完整列表。
+     */
+    public static final java.util.Queue<java.util.List<com.november.mcphone.feature.notes.Note>>
+        pendingNoteSyncs = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+    /**
+     * NoteSync 分批累加缓冲：仅在 netty 线程读写（同一条 channel 的包在同一线程
+     * 按序处理），主线程不触碰。{@code noteAccumTotal < 0} 表示当前没有进行中的序列。
+     */
+    private static java.util.List<com.november.mcphone.feature.notes.Note> noteAccum;
+    private static int noteAccumTotal = -1;
+
+    /**
+     * netty 线程调用：把一批便签按 offset 拼进累加缓冲，收齐 total 条后整体入队。
+     * 新序列（offset=0）或检测到乱序会重开缓冲，半途的旧序列被丢弃不污染新数据。
+     */
+    public static void accumulateNoteSync(
+            java.util.List<com.november.mcphone.feature.notes.Note> batch, int offset, int total) {
+        if (offset == 0 || noteAccum == null || noteAccumTotal < 0
+                || noteAccum.size() != offset) {
+            noteAccum = new java.util.ArrayList<>(Math.max(total, batch.size()));
+            noteAccumTotal = total;
+        }
+        noteAccum.addAll(batch);
+        if (noteAccum.size() >= noteAccumTotal) {
+            pendingNoteSyncs.add(noteAccum);
+            noteAccum = null;
+            noteAccumTotal = -1;
+        }
+    }
 
     private static String lastAe2GuiLogged;
 
@@ -121,24 +152,27 @@ public final class ClientHooks {
             com.november.mcphone.client.enhance.PlayTimeClient.onSync(playTime);
             com.november.mcphone.client.enhance.PlayTimeClient.refreshClockPage();
         }
-        // 离开世界：清空时长缓存、问候状态、商店已购缓存与聊天静态状态
+        // 聊天 App：会话/消息/图片同步包在 netty 线程入队，这里主线程应用并刷新页面。
+        com.november.mcphone.feature.chat.client.ChatClient.applyPending();
+        // 服务端→客户端便签同步（netty 线程分批累加收齐入队，主线程整批应用；含旧本地便签一次性导入）。
+        java.util.List<com.november.mcphone.feature.notes.Note> noteSync;
+        while ((noteSync = pendingNoteSyncs.poll()) != null) {
+            com.november.mcphone.feature.notes.NotesClientCache.onSync(noteSync);
+        }
+        // 离开世界：清空时长缓存、问候状态、商店已购缓存、聊天静态状态与便签缓存
         // （换存档后未重新同步前不得展示旧值）。
         if (mc.theWorld == null) {
             com.november.mcphone.client.enhance.PlayTimeClient.reset();
             com.november.mcphone.client.enhance.GreetingToast.onWorldLeave();
             StoreClient.reset();
             com.november.mcphone.feature.chat.client.ChatClient.reset();
+            // 便签同样换存档即清；重置 imported 是刻意的——导入只在"服务端为空"时
+            // 触发，新存档下重新给一次导入机会是正确语义（不会产生重复导入）。
+            pendingNoteSyncs.clear();
+            com.november.mcphone.feature.notes.NotesClientCache.reset();
         } else if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
             // 手机打开期间做一次性问候（欢迎/深夜/连续 3h/世界总 100h）。
             com.november.mcphone.client.enhance.GreetingToast.onClientTick();
-        }
-        // 聊天 App：会话/消息/图片同步包在 netty 线程入队，这里主线程应用并刷新页面。
-        com.november.mcphone.feature.chat.client.ChatClient.applyPending();
-        // 服务端→客户端便签同步（netty 线程缓存，主线程应用；含旧本地便签一次性导入）。
-        java.util.List<com.november.mcphone.feature.notes.Note> noteSync = pendingNoteSync;
-        if (noteSync != null) {
-            pendingNoteSync = null;
-            com.november.mcphone.feature.notes.NotesClientCache.onSync(noteSync);
         }
     }
 

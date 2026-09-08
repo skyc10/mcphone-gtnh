@@ -24,7 +24,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * </ul>
  *
  * <p>注册在 FML 总线（1.7.10 的 TickEvent/PlayerEvent 都在这里派发），
- * 由 NetworkHandler.init() 两侧调用（客户端侧注册无效但无害）。</p>
+ * 由 NetworkHandler.init() 两侧无条件调用——单人模式 init 也跑在客户端线程，
+ * 若按 effectiveSide 门控会漏注册；监听器内部以 {@code EntityPlayerMP} 过滤
+ * 玩家事件，ServerTick 事件只由服务端 tick 线程派发，客户端侧注册无副作用。</p>
  */
 public final class PlayTimeTracker {
 

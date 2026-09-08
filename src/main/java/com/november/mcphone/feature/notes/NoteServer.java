@@ -14,8 +14,18 @@ import com.november.mcphone.net.NetworkHandler;
 /**
  * 便签服务端业务逻辑：数据存 {@link NoteWorldData}（随存档持久化），
  * 增删改后把该玩家全量便签回推（与 WaypointSync/UnlockSync 同一模式）。
+ *
+ * <p>满编 200 条一次发送会超 1.7.10 自定义包 32767 字节上限，{@link #syncTo}
+ * 按 {@value #SYNC_BATCH_NOTES} 条且 ≤ {@value #SYNC_BATCH_BYTES} 字节拆批发送
+ * （线格式见 {@link NetworkHandler.NoteSync}）。</p>
  */
 public final class NoteServer {
+
+    /** 单批最大条数。 */
+    private static final int SYNC_BATCH_NOTES = 8;
+
+    /** 单批 serialized 字节上限（留足余量，32767 上限内）。 */
+    private static final int SYNC_BATCH_BYTES = 24 * 1024;
 
     private NoteServer() {}
 
@@ -31,7 +41,8 @@ public final class NoteServer {
     public static void handlePrint(EntityPlayerMP player, int id) {
         Note note = find(player, id);
         if (note == null) return;
-        if (NoteConfig.printCostsBlankBook(player.worldObj) && !consumeBlankBook(player)) {
+        // getEntityWorld：印书可能在下界触发，worldObj 会读错维度目录（同 data() 的口径）。
+        if (NoteConfig.printCostsBlankBook(player.getEntityWorld()) && !consumeBlankBook(player)) {
             player.addChatMessage(new ChatComponentText(
                 "§7[MC手机] §c印成书需要一本空白的书与笔。"));
             return;
@@ -40,10 +51,39 @@ public final class NoteServer {
         player.addChatMessage(new ChatComponentText("§7[MC手机] §a便签已印成书。"));
     }
 
-    /** 登录/增删改后全量同步（按最近修改倒序，与便签页展示顺序一致）。 */
+    /**
+     * 登录/增删改后全量同步（按最近修改倒序，与便签页展示顺序一致）。
+     * 分批发送：每批 ≤ {@value #SYNC_BATCH_NOTES} 条且序列化估计 ≤
+     * {@value #SYNC_BATCH_BYTES} 字节；客户端按 offset/total 拼回完整列表。
+     */
     public static void syncTo(EntityPlayerMP player) {
         List<Note> notes = sortedByRecent(player);
-        NetworkHandler.INSTANCE.sendTo(new NetworkHandler.NoteSync(notes), player);
+        int total = notes.size();
+        int offset = 0;
+        do {
+            int bytes = 8; // count(short)+offset(int)+total(int) 线格式头部
+            int end = offset;
+            while (end < total
+                    && end - offset < SYNC_BATCH_NOTES
+                    && (end == offset || bytes + noteWireBytes(notes.get(end)) <= SYNC_BATCH_BYTES)) {
+                bytes += noteWireBytes(notes.get(end));
+                end++;
+            }
+            // 空列表也要发一条空批（total=0），客户端依赖它触发导入判断。
+            NetworkHandler.INSTANCE.sendTo(
+                new NetworkHandler.NoteSync(new ArrayList<>(notes.subList(offset, end)), offset, total),
+                player);
+            offset = end;
+        } while (offset < total);
+    }
+
+    /** 一条便签的线格式字节数：id4 + title前缀2 + body前缀2 + modified8 + 内容。 */
+    private static int noteWireBytes(Note n) {
+        byte[] t = (n.title == null ? "" : n.title)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] b = (n.body == null ? "" : n.body)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        return 16 + t.length + b.length;
     }
 
     // ===================== 保存 / 删除 =====================
@@ -51,43 +91,27 @@ public final class NoteServer {
     private static boolean saveNote(EntityPlayerMP player, int id, String rawTitle, String rawBody) {
         String title = truncate(trimOneLine(rawTitle), Note.MAX_TITLE);
         String body = truncate(rawBody == null ? "" : rawBody, Note.MAX_BODY);
-        NoteWorldData data = data();
 
         if (title.isEmpty() && body.isEmpty()) {
             return deleteNote(player, id);
         }
 
-        List<Note> notes = data.notesOf(player.getUniqueID());
-        long now = System.currentTimeMillis();
-
+        // 上限校验 + id 分配在数据类同一临界区内完成（见 NoteWorldData.addNote）。
         if (id == Note.NEW_ID) {
-            if (notes.size() >= Note.MAX_COUNT) {
+            if (data().addNote(player.getUniqueID(), title, body) == null) {
                 player.addChatMessage(new ChatComponentText(
                     "§7[MC手机] §c便签已达上限（" + Note.MAX_COUNT + " 条）。"));
                 return false;
             }
-            Note note = new Note(data.nextId(player.getUniqueID()), title, body);
-            note.modified = now;
-            notes.add(note);
-            data.markDirty();
             return true;
         }
 
-        Note existing = find(player, id);
-        if (existing == null) return false; // 改不存在的 id 直接拒绝，否则客户端可指定 id 新建
-        existing.title = title;
-        existing.body = body;
-        existing.modified = now;
-        data.markDirty();
-        return true;
+        return data().updateNote(player.getUniqueID(), id, title, body);
     }
 
     private static boolean deleteNote(EntityPlayerMP player, int id) {
         if (id == Note.NEW_ID) return false;
-        List<Note> notes = data().notesOf(player.getUniqueID());
-        boolean removed = notes.removeIf(n -> n.id == id);
-        if (removed) data().markDirty();
-        return removed;
+        return data().removeNote(player.getUniqueID(), id);
     }
 
     // ===================== 印成书成本 =====================
@@ -132,8 +156,12 @@ public final class NoteServer {
         return NoteWorldData.get(MinecraftServer.getServer().getEntityWorld());
     }
 
+    /** 截断到 max 字符；截断点落在代理对中间时回退一个字符，避免切出半个 emoji。 */
     private static String truncate(String s, int max) {
-        return s.length() > max ? s.substring(0, max) : s;
+        if (s.length() <= max) return s;
+        int end = max;
+        if (Character.isHighSurrogate(s.charAt(end - 1))) end--;
+        return s.substring(0, end);
     }
 
     /** 标题压成单行（换行变空格），旧客户端本地文件标题可能含换行。 */

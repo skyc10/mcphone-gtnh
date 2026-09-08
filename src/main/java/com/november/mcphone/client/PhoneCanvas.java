@@ -3,7 +3,6 @@ package com.november.mcphone.client;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
@@ -34,17 +33,27 @@ public final class PhoneCanvas {
         File f = new File(baseDir(), "settings.properties");
         if (f.isFile()) {
             try (FileInputStream in = new FileInputStream(f)) {
+                // catch Exception：Properties.load 遇到畸形 unicode 转义抛
+                // IllegalArgumentException，不是 IOException。
                 p.load(in);
-            } catch (IOException ignored) {}
+            } catch (Exception ignored) {}
         }
         return p;
     }
 
+    /** 原子写：先写同目录 .tmp，成功后再 rename 到位（Windows 上 rename 不覆盖
+     * 已存在目标，先删旧文件），避免写一半崩溃留下半个配置。 */
     private static void save(Properties p) {
         File f = new File(baseDir(), "settings.properties");
-        try (FileOutputStream out = new FileOutputStream(f)) {
+        File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
             p.store(out, "MCphone client settings");
-        } catch (IOException ignored) {}
+        } catch (Exception ignored) {
+            tmp.delete();
+            return;
+        }
+        if (f.exists()) f.delete();
+        if (!tmp.renameTo(f)) tmp.delete();
     }
 
     public static boolean isAppEnabled(String id) {

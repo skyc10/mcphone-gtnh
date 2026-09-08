@@ -3,7 +3,6 @@ package com.november.mcphone.client.enhance;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -20,8 +19,9 @@ import com.november.mcphone.client.PhoneCanvas;
  *
  * <p>参考上游 config/mcphone/installed/&lt;存档&gt;.json 的思路：以"存档标识"为键
  * 存到 .minecraft/mcphone/homegrid/&lt;存档&gt;.properties（单键 order=逗号分隔 id）。
- * 存档标识 = 单机存档文件夹名 / 服务器地址。文件不存在时回落到全局
- * {@link PhoneCanvas#getAppOrder()}（应用管理页 ↑/↓ 维护的那份）。</p>
+ * 优先级：本存档顺序文件存在且非空 &gt; 全局顺序表
+ * {@link PhoneCanvas#getAppOrder()}（应用管理页 ↑/↓ 维护的那份，文件缺失/为空时
+ * 回落）&gt; 按传入顺序兜底。保存时两份都写（拖拽后两边一致）。</p>
  *
  * <p>读取时过滤未知 id（附属被卸载后自动清理），已知但未列出的 App 按注册顺序
  * 追加到末尾（新装 App 默认排最后）。</p>
@@ -30,10 +30,12 @@ public final class HomeGridStore {
 
     private HomeGridStore() {}
 
-    /** 解析主屏顺序：stored（可空）优先，其次全局顺序表，最后按传入顺序兜底。 */
+    /** 解析主屏顺序：stored（非空）优先，其次全局顺序表，最后按传入顺序兜底。 */
     public static List<String> resolveOrder(Collection<String> knownIds) {
+        List<String> stored = loadStored();
+        List<String> ordered = stored.isEmpty() ? PhoneCanvas.getAppOrder() : stored;
         List<String> out = new ArrayList<>();
-        for (String id : loadStored()) {
+        for (String id : ordered) {
             if (knownIds.contains(id) && !out.contains(id)) out.add(id);
         }
         for (String id : knownIds) {
@@ -44,12 +46,12 @@ public final class HomeGridStore {
 
     /** 拖拽落定：写本存档顺序文件，并同步一份到全局顺序表（应用管理页展示一致）。 */
     public static void saveOrder(List<String> ids) {
-        Properties p = new Properties();
-        p.setProperty("order", String.join(",", ids));
         File f = orderFile();
-        try (FileOutputStream out = new FileOutputStream(f)) {
-            p.store(out, "MCphone home grid order (per save)");
-        } catch (IOException ignored) {}
+        if (f != null) {
+            Properties p = new Properties();
+            p.setProperty("order", String.join(",", ids));
+            atomicStore(p, f, "MCphone home grid order (per save)");
+        }
         PhoneCanvas.setAppOrder(new ArrayList<>(ids));
     }
 
@@ -61,8 +63,10 @@ public final class HomeGridStore {
         if (f == null || !f.isFile()) return out;
         Properties p = new Properties();
         try (FileInputStream in = new FileInputStream(f)) {
+            // catch Exception：Properties.load 遇到畸形 \\u 转义抛的是
+            // IllegalArgumentException，不是 IOException。
             p.load(in);
-        } catch (IOException ignored) {
+        } catch (Exception ignored) {
             return out;
         }
         for (String s : p.getProperty("order", "").split(",")) {
@@ -77,6 +81,22 @@ public final class HomeGridStore {
         File dir = new File(PhoneCanvas.baseDir(), "homegrid");
         if (!dir.exists()) dir.mkdirs();
         return new File(dir, key + ".properties");
+    }
+
+    /**
+     * 原子写：先写同目录 .tmp，成功后再 rename 到位（Windows 上 rename 不覆盖
+     * 已存在目标，先删旧文件），避免写一半崩溃/断电留下半个 properties。
+     */
+    private static void atomicStore(Properties p, File f, String comment) {
+        File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            p.store(out, comment);
+        } catch (Exception ignored) {
+            tmp.delete();
+            return;
+        }
+        if (f.exists()) f.delete();
+        if (!tmp.renameTo(f)) tmp.delete();
     }
 
     /** 当前存档标识：单机 = 存档文件夹名；联机 = 服务器地址；都拿不到 = null。 */
