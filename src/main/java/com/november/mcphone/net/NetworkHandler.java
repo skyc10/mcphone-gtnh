@@ -777,7 +777,7 @@ public final class NetworkHandler {
                     // 预览文本 200 字节封顶（原 600B × 200 条会逼近 32KB 包上限）。
                     byte[] data = (meta.text == null ? "" : meta.text)
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                    int len = utf8Clamp(data, 200);
+                    int len = utf8Clamp(data, 600);
                     buf.writeShort(len);
                     buf.writeBytes(data, 0, len);
                 }
@@ -979,7 +979,10 @@ public final class NetworkHandler {
 
         @Override
         public void fromBytes(ByteBuf buf) {
+            // 与 toBytes 严格对称：short count + int offset + int total + 条目。
             int n = buf.readUnsignedShort();
+            offset = buf.readInt();
+            total = buf.readInt();
             // 防伪造包：每条至少 16 字节（id4+title2+body2+modified8），声明条数
             // 超过剩余字节可容纳的条数时直接 DecoderException，不分配大列表。
             if ((long) n * 16 > buf.readableBytes()) {
@@ -996,8 +999,6 @@ public final class NetworkHandler {
                 note.modified = buf.readLong();
                 notes.add(note);
             }
-            offset = buf.readInt();
-            total = buf.readInt();
         }
 
         @Override

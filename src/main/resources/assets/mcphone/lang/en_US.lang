@@ -179,5 +179,4 @@ msg.mcphone.home_drag_hint=Hold and drag icons to reorder (saved per world).
 
 msg.mcphone.store_buy_failed=§7[MCphone] §cPurchase failed: you don't have %s x%s in your inventory.
 msg.mcphone.store_buy_success=§7[MCphone] §aPurchase complete, App unlocked.
-msg.mcphone.store_locked=§7[MCphone] §cThis App is locked. Buy it in the Phone Store first.
 msg.mcphone.store_locked_server=§7[MCphone] §cThis App is locked. Buy it in the Phone Store first.
