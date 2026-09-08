@@ -146,8 +146,6 @@ public final class ScenePages {
         page.appendChild(infoRow(
             StatCollector.translateToLocal("msg.mcphone.playtime_total"),
             com.november.mcphone.client.enhance.PlayTimeClient.formatTotal()));
-        page.appendChild(PhoneUi.muted(
-            StatCollector.translateToLocal("msg.mcphone.playtime_hint")));
         return page;
     }
 

@@ -362,11 +362,6 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         final java.util.List<String> cellIds = new java.util.ArrayList<>();
         final HomeDrag drag = new HomeDrag();
 
-        SceneNode dragHint = muted(StatCollector.translateToLocal("msg.mcphone.home_drag_hint"));
-        dragHint.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
-        dragHint.setMaxTextWidth(panelW - 32);
-        grid.appendChild(dragHint);
-
         int perRow = 3;
         int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);
         int box = Math.min(84, cellW - 8);
