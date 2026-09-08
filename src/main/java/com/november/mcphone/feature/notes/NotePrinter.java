@@ -112,6 +112,13 @@ public final class NotePrinter {
             if (width > PAGE_WIDTH) {
                 boolean breakAtSpace = lastSpace > start;
                 int cut = breakAtSpace ? lastSpace : i;
+                // 硬断点落在 UTF-16 代理对中间时回退一个字符（空格断行不会：
+                // 断点字符本身是空格，不可能配成代理对的低位）。回退后本行至少
+                // 还剩 1 个字符（cut-1 > start 保证），代理对整体挪到下一行。
+                if (!breakAtSpace && cut > start + 1
+                        && Character.isHighSurrogate(text.charAt(cut - 1))) {
+                    cut--;
+                }
                 out.add(text.substring(start, cut));
 
                 start = breakAtSpace ? cut + 1 : cut;

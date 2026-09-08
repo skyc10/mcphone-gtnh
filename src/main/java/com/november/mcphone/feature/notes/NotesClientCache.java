@@ -12,7 +12,9 @@ import com.november.mcphone.net.NetworkHandler;
  *
  * <p>导入逻辑：首次收到服务端同步且服务端为空、而本地 {@code mcphone/notes/*.txt}
  * 非空时，把本地便签逐条推给服务端（id=0 由服务端分配）；本地文件保留不删
- * （只读备份）。每个客户端会话只导入一次。</p>
+ * （只读备份）。每个客户端会话只导入一次；{@link #reset()}（离开世界时调用）
+ * 会把 imported 一并重置——导入只在"服务端为空"时触发，换存档/重连后重新给
+ * 一次导入机会是正确语义，不会产生重复导入。</p>
  */
 public final class NotesClientCache {
 
@@ -23,7 +25,10 @@ public final class NotesClientCache {
 
     private NotesClientCache() {}
 
-    /** NoteSync 包落地（客户端 tick 主线程调用）。 */
+    /**
+     * 完整列表落地（客户端 tick 主线程调用；NoteSync 分批在 ClientHooks 累加，
+     * 收齐才整体到达这里）。每次调用都是全量覆盖。
+     */
     public static void onSync(List<Note> list) {
         boolean first = !received;
         notes = new ArrayList<>(list);
@@ -34,6 +39,13 @@ public final class NotesClientCache {
             importLocalNotes();
         }
         refreshNotesPage();
+    }
+
+    /** 离开世界时清空缓存：换存档后未重新同步前不得展示旧便签。 */
+    public static void reset() {
+        notes = new ArrayList<>();
+        received = false;
+        imported = false;
     }
 
     /** 当前客户端已知的便签列表（便签页渲染用，最近修改倒序）。 */
@@ -67,11 +79,15 @@ public final class NotesClientCache {
         });
     }
 
-    /** 便签同步到达后刷新（同 StoreClient：当前手机页开着就重建，列表/编辑页拿最新数据）。 */
+    /**
+     * 便签同步到达后刷新：仅当便签页正开着才重建，避免同步包把用户正在编辑的
+     * 页面（如主屏/其他 App 的输入状态）打掉。便签列表/编辑页都挂在 "notes"
+     * 应用页内，isPageOpen("notes") 能覆盖。
+     */
     private static void refreshNotesPage() {
         PhoneUi.postAction(() -> {
             PhoneUi ui = PhoneUi.ACTIVE;
-            if (ui != null) ui.rebuildPage();
+            if (ui != null && ui.isPageOpen("notes")) ui.rebuildPage();
         });
     }
 }

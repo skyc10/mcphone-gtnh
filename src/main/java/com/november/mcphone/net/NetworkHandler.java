@@ -51,15 +51,18 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(NoteSave.Handler.class, NoteSave.class, 12, Side.SERVER);
         INSTANCE.registerMessage(NoteSync.Handler.class, NoteSync.class, 13, Side.CLIENT);
         INSTANCE.registerMessage(NotePrint.Handler.class, NotePrint.class, 14, Side.SERVER);
-        // 便签登录同步（PlayerEvent 在 Forge 总线；NoteEvents 为 public 具名类，见踩坑 #7）。
-        net.minecraftforge.common.MinecraftForge.EVENT_BUS
+        // 便签登录同步（PlayerLoggedInEvent 由 FMLCommonHandler 内部 EventBus 派发，
+        // 不是 MinecraftForge.EVENT_BUS——挂错总线监听器永远不会触发）。
+        cpw.mods.fml.common.FMLCommonHandler.instance()
+            .bus()
             .register(new com.november.mcphone.feature.notes.NoteEvents());
         // 游玩时长（服务端权威）：S→C 快照推送 + C→S 里程碑确认（一次性问候落盘）。
+        // 两侧都注册：1.7.10 单人模式下 init 在客户端线程跑，若按 effectiveSide 门控
+        // 会漏注册；监听器内部用 EntityPlayerMP 过滤 + ServerTick 事件仅服务端派发，
+        // 客户端侧注册无副作用。
         INSTANCE.registerMessage(PlayTimeSync.Handler.class, PlayTimeSync.class, 15, Side.CLIENT);
         INSTANCE.registerMessage(PlayTimeMilestone.Handler.class, PlayTimeMilestone.class, 16, Side.SERVER);
-        if (cpw.mods.fml.common.FMLCommonHandler.instance().getEffectiveSide().isServer()) {
-            com.november.mcphone.store.PlayTimeTracker.register();
-        }
+        com.november.mcphone.store.PlayTimeTracker.register();
     }
 
     public static void sendToServer(IMessage msg) {
@@ -368,6 +371,22 @@ public final class NetworkHandler {
         byte[] data = new byte[len];
         buf.readBytes(data);
         return new String(data, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 读一段 short 长度前缀的字节，带越界防御：长度超过包剩余可读字节时抛
+     * {@link io.netty.handler.codec.DecoderException}，而不是直接分配恶意长度数组
+     * （伪造包可把 OOM/负数组异常打进 netty 线程）。仅便签 12/13 两个包接入。
+     */
+    private static byte[] readSized(ByteBuf buf) {
+        int len = buf.readUnsignedShort();
+        if (len > buf.readableBytes()) {
+            throw new io.netty.handler.codec.DecoderException(
+                "mcphone: declared length " + len + " > remaining " + buf.readableBytes());
+        }
+        byte[] data = new byte[len];
+        buf.readBytes(data);
+        return data;
     }
 
     private static void writeUtf(ByteBuf buf, String s) {
@@ -800,12 +819,9 @@ public final class NetworkHandler {
         public void fromBytes(ByteBuf buf) {
             action = buf.readByte();
             id = buf.readInt();
-            byte[] t = new byte[buf.readShort()];
-            buf.readBytes(t);
-            title = new String(t, java.nio.charset.StandardCharsets.UTF_8);
-            byte[] b = new byte[buf.readShort()];
-            buf.readBytes(b);
-            body = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+            // readSized 校验长度 ≤ 剩余字节，伪造包的超长长度前缀直接 DecoderException。
+            title = new String(readSized(buf), java.nio.charset.StandardCharsets.UTF_8);
+            body = new String(readSized(buf), java.nio.charset.StandardCharsets.UTF_8);
         }
 
         @Override
@@ -851,40 +867,62 @@ public final class NetworkHandler {
         }
     }
 
-    /** 服务端 → 客户端：当前玩家便签全量同步（登录/增删改后）。 */
+    /**
+     * 服务端 → 客户端：当前玩家便签同步（登录/增删改后），分批传输。
+     *
+     * <p>1.7.10 自定义包上限 32767 字节，200 条满编便签一次发会超限，故拆批：
+     * 线格式 = count(short) + offset(int) + total(int) + count×条目
+     * (id int, title short+utf8, body short+utf8, modified long)。
+     * 客户端按 offset 拼装、total 判断收齐（见 ClientHooks 累加器）。
+     * {@code total == 0} 表示服务端没有便签，仍发一条空批触发导入判断。</p>
+     */
     public static class NoteSync implements IMessage {
 
+        /** 本批条目。 */
         public java.util.List<com.november.mcphone.feature.notes.Note> notes =
             new java.util.ArrayList<>();
+        /** 本批在全量列表中的起始下标（0 起始的第一批必然 offset=0）。 */
+        public int offset;
+        /** 全量列表总条数（不是本批条数）。 */
+        public int total;
 
         public NoteSync() {}
 
-        public NoteSync(java.util.List<com.november.mcphone.feature.notes.Note> notes) {
+        public NoteSync(java.util.List<com.november.mcphone.feature.notes.Note> notes,
+                        int offset, int total) {
             this.notes = notes;
+            this.offset = offset;
+            this.total = total;
         }
 
         @Override
         public void fromBytes(ByteBuf buf) {
-            int n = buf.readShort();
+            int n = buf.readUnsignedShort();
+            // 防伪造包：每条至少 16 字节（id4+title2+body2+modified8），声明条数
+            // 超过剩余字节可容纳的条数时直接 DecoderException，不分配大列表。
+            if ((long) n * 16 > buf.readableBytes()) {
+                throw new io.netty.handler.codec.DecoderException(
+                    "mcphone: NoteSync count " + n + " > remaining " + buf.readableBytes());
+            }
             notes = new java.util.ArrayList<>(Math.min(n, 512));
             for (int i = 0; i < n; i++) {
                 com.november.mcphone.feature.notes.Note note =
                     new com.november.mcphone.feature.notes.Note();
                 note.id = buf.readInt();
-                byte[] t = new byte[buf.readShort()];
-                buf.readBytes(t);
-                note.title = new String(t, java.nio.charset.StandardCharsets.UTF_8);
-                byte[] b = new byte[buf.readShort()];
-                buf.readBytes(b);
-                note.body = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+                note.title = new String(readSized(buf), java.nio.charset.StandardCharsets.UTF_8);
+                note.body = new String(readSized(buf), java.nio.charset.StandardCharsets.UTF_8);
                 note.modified = buf.readLong();
                 notes.add(note);
             }
+            offset = buf.readInt();
+            total = buf.readInt();
         }
 
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeShort(notes.size());
+            buf.writeInt(offset);
+            buf.writeInt(total);
             for (com.november.mcphone.feature.notes.Note n : notes) {
                 byte[] t = (n.title == null ? "" : n.title)
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -903,9 +941,10 @@ public final class NetworkHandler {
 
             @Override
             public IMessage onMessage(NoteSync msg, MessageContext ctx) {
-                // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 中应用（同 WaypointSync）。
-                com.november.mcphone.client.ClientHooks.pendingNoteSync =
-                    new java.util.ArrayList<>(msg.notes);
+                // 1.7.10 客户端包处理在 netty 线程：分批包按序进入累加器，客户端 tick
+                // 中把收齐的全量列表交给 NotesClientCache（同 WaypointSync 模式）。
+                com.november.mcphone.client.ClientHooks.accumulateNoteSync(
+                    msg.notes, msg.offset, msg.total);
                 return null;
             }
         }
