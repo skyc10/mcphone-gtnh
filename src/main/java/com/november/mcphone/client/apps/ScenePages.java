@@ -654,6 +654,10 @@ public final class ScenePages {
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.store_mode")));
         page.appendChild(storeModeRow(ui));
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.store_hint")));
+        // 渲染自检提示：本会话内有 App 泄漏过 GL 裁剪时告知玩家（fail-safe 已修复）。
+        if (PhoneCanvas.isClipped()) {
+            page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.clipped_hint")));
+        }
         return page;
     }
 

@@ -160,3 +160,19 @@ cfg.putInt("level", 3);
 
 热键只在无 GUI 打开、玩家存活且非 spectator 时生效；仅支持键盘
 （修饰键按物理左右 Shift/Ctrl/Alt 任一即可）。App 被玩家停用后热键不触发。
+
+## 九、渲染安全（GL 状态）
+
+宿主每帧渲染结束后自检 `GL_SCISSOR_TEST`：若你的 App 在页面上开启了 scissor
+（或调用了会改 GL 状态的原生渲染代码）却没有恢复，宿主会自动关掉泄漏的裁剪层，
+在日志打印 `[mcphone] scissor leak detected on page '...'`，并在设置页显示一次
+提示。不会崩溃，但请自觉配对开关。
+
+规则：
+
+1. **scissor/stencil 等状态必须 try/finally 成对恢复**：`glEnable(GL_SCISSOR_TEST)`
+   后务必在 finally 里 `glDisable`。优先使用 Qz-UILib 的 `setClipChildren(true)`
+   节点裁剪，宿主会自动管理。
+2. 不要在 `createPage` / 回调里改投影矩阵、视口或帧缓冲；页面建树是纯场景操作。
+3. 自绘纹理/图片用 `PhoneWidgets` 提供的 image 节点；绕开宿主直接画 GL 的代码
+   出了问题不会被本 API 兼容性承诺覆盖。

@@ -185,3 +185,4 @@ msg.mcphone.store_buy_success=§7[MCphone] §aPurchase complete, App unlocked.
 msg.mcphone.store_locked_server=§7[MCphone] §cThis App is locked. Buy it in the Phone Store first.
 msg.mcphone.hotkey_capturing=§aPress any key to bind it to "%s" (Esc to cancel; press the same key again to clear).
 msg.mcphone.hotkey_conflict=§7[MCphone] §e%s hotkey %s conflicts with an existing keybind.
+msg.mcphone.clipped_hint=§6Some app left an unbalanced GL scissor; it was auto-corrected (reopen the offending app if it looks wrong).

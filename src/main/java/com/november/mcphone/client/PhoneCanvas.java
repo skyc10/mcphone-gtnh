@@ -241,4 +241,15 @@ public final class PhoneCanvas {
         }
         save(p);
     }
+
+    /** 渲染自检：本会话内检测到过 App 泄漏 GL 裁剪（未持久化，重启复位）。 */
+    private static volatile boolean clipped;
+
+    public static boolean isClipped() {
+        return clipped;
+    }
+
+    public static void setClipped(boolean v) {
+        clipped = v;
+    }
 }

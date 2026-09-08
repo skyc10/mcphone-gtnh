@@ -10,6 +10,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.StatCollector;
 
+import org.lwjgl.opengl.GL11;
+
 import club.heiqi.uilib.ui.image.HostImageSource;
 import club.heiqi.uilib.ui.reactive.Signal;
 import club.heiqi.uilib.ui.scene.control.SceneButton;
@@ -757,7 +759,33 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     public void render(int w, int h, club.heiqi.uilib.ui.render.UiRenderBackend ctx, int absX, int absY) {
         flushPendingActions();
         super.render(w, h, ctx, absX, absY);
+        checkScissorLeak();
     }
+
+    /**
+     * 渲染后自检：手机帧结束时 scissor 若仍开启，说明某个 App/附属留下了未恢复
+     * 的裁剪，会泄漏到整个游戏画面（只剩 scissor 矩形内的一小块）。本库自身
+     * ClipStack 恒成对开关、帧末恢复，所以帧末不应残留。检测到即关掉并每 App
+     * 告警一次（置 PhoneCanvas.clipped 供 About 页提示），fail-safe 不崩溃。
+     */
+    private void checkScissorLeak() {
+        if (!GL11.glIsEnabled(GL11.GL_SCISSOR_TEST)) return;
+        int enabled = 0;
+        // 无法得知调用方堆叠了几层，最多剥 8 层兜底。
+        while (GL11.glIsEnabled(GL11.GL_SCISSOR_TEST) && enabled < 8) {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            enabled++;
+        }
+        String pageId = currentPageId;
+        if (pageId != null && WARNED_PAGES.add(pageId)) {
+            System.err.println("[mcphone] scissor leak detected on page '" + pageId
+                + "' (disabled " + enabled + " layer(s)); the offending app left GL_SCISSOR_TEST enabled");
+        }
+        PhoneCanvas.setClipped(true);
+    }
+
+    /** 已告警过的页面 id（每页只告警一次，避免刷日志）。 */
+    private static final java.util.Set<String> WARNED_PAGES = new java.util.HashSet<>();
 
     @Override
     protected SceneNode getRoot() {

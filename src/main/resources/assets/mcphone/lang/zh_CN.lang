@@ -186,3 +186,4 @@ msg.mcphone.store_buy_success=§7[MC手机] §a购买成功，App 已解锁。
 msg.mcphone.store_locked_server=§7[MC手机] §c该 App 未解锁，请先在手机商店购买。
 msg.mcphone.hotkey_capturing=§a按下任意键绑定到"%s"（Esc 取消；重复按同一键清除）。
 msg.mcphone.hotkey_conflict=§7[MC手机] §e%s 的快捷键 %s 与已有按键绑定冲突。
+msg.mcphone.clipped_hint=§6检测到某 App 泄漏了 GL 裁剪，已自动修复；若该 App 显示异常请重新打开它。
