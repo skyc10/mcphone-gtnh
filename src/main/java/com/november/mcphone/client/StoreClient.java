@@ -30,6 +30,11 @@ public final class StoreClient {
         com.november.mcphone.client.scene.PhoneUi.onStoreSync();
     }
 
+    /** 离开世界（换服/回主菜单）时复位：旧服已购列表不得带到新服。 */
+    public static void reset() {
+        unlocked = null;
+    }
+
     /** 商店模式是否开启（客户端本地设置，默认关闭）。 */
     public static boolean isEnabled() {
         return PhoneCanvas.isStoreMode();

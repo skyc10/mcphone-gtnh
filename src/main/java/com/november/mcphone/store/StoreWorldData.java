@@ -19,6 +19,9 @@ public class StoreWorldData extends WorldSavedData {
 
     private static final String NAME = "mcphone.store";
 
+    /** appId 白名单：小写字母/数字/下划线，1-32 位（逗号 join 存储的安全边界）。 */
+    private static final java.util.regex.Pattern APP_ID = java.util.regex.Pattern.compile("[a-z0-9_]{1,32}");
+
     private final Set<String> keys = new HashSet<>();
 
     public StoreWorldData() {
@@ -45,6 +48,8 @@ public class StoreWorldData extends WorldSavedData {
     }
 
     public void unlock(UUID player, String appId) {
+        // 解锁入口唯一校验点：非法 appId（含逗号/冒号会污染 join 存储格式）直接拒绝。
+        if (appId == null || !APP_ID.matcher(appId).matches()) return;
         if (keys.add(player.toString() + ':' + appId)) markDirty();
     }
 

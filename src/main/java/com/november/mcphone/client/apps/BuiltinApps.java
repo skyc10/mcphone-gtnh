@@ -166,7 +166,8 @@ public final class BuiltinApps {
 
             @Override
             public ItemStack iconItem() {
-                Item it = Item.getItemById(130); // 末影箱
+                // 按注册名取物品（id 130 硬编码依赖注册顺序，附属一多就漂移）。
+                Item it = Item.getItemFromBlock(net.minecraft.init.Blocks.ender_chest);
                 return it == null ? null : new ItemStack(it);
             }
 

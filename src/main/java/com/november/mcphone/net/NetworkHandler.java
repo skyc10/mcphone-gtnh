@@ -67,11 +67,47 @@ public final class NetworkHandler {
     }
 
     /**
-     * 1.7.10 惯例：包处理直接执行（与原版/EnderIO 等一致）。
-     * 服务端动作均幂等且轻量，无跨线程可见性问题。
+     * 服务端 C→S 包处理统一入口：1.7.10 的 SimpleImpl handler 运行在 netty
+     * event-loop 线程（receivedPacketsQueue 只覆盖原版包），直接 r.run() 会脱离
+     * 主线程访问世界/背包等非线程安全状态——必须排进服务器主 tick 执行。
+     *
+     * 实现：此 GTNH 1.7.10 环境的 MinecraftServer 没有 addScheduledTask（func_152344_a
+     * 只映射到客户端 Minecraft），故自建任务队列，由 ServerTaskDrain 在
+     * ServerTickEvent(END)（FML 总线，主线程）统一执行。
      */
+    private static final java.util.Queue<Runnable> SERVER_TASKS =
+        new java.util.concurrent.ConcurrentLinkedQueue<Runnable>();
+
+    private static boolean taskDrainRegistered;
+
     public static void runOnServer(MessageContext ctx, Runnable r) {
-        r.run();
+        if (cpw.mods.fml.common.FMLCommonHandler.instance().getEffectiveSide().isServer()) {
+            SERVER_TASKS.add(r);
+            if (!taskDrainRegistered) {
+                taskDrainRegistered = true;
+                cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(new ServerTaskDrain());
+            }
+        } else {
+            // 集成服客户端侧（单机内置服务端不会走到这：包都发往专用逻辑）。
+            r.run();
+        }
+    }
+
+    /** 必须是 public 具名静态类（踩坑 #7）；仅服务端注册（runOnServer 懒注册）。 */
+    public static final class ServerTaskDrain {
+
+        @cpw.mods.fml.common.eventhandler.SubscribeEvent
+        public void onServerTick(cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent event) {
+            if (event.phase != cpw.mods.fml.common.gameevent.TickEvent.Phase.END) return;
+            Runnable r;
+            while ((r = SERVER_TASKS.poll()) != null) {
+                try {
+                    r.run();
+                } catch (Exception e) {
+                    System.err.println("[mcphone] server task failed: " + e);
+                }
+            }
+        }
     }
 
     // ===================== 消息定义 =====================
@@ -90,7 +126,14 @@ public final class NetworkHandler {
 
             @Override
             public IMessage onMessage(OpenEnderChest msg, MessageContext ctx) {
-                runOnServer(ctx, () -> AppIntegrations.openEnderChest(ctx.getServerHandler().playerEntity));
+                runOnServer(
+                    ctx,
+                    () -> {
+                        // 服务端权威门禁：有价且未购买即拒绝（商店模式的本意，
+                        // 与客户端本地开关无关，见 StoreManager.canOpen）。
+                        com.november.mcphone.store.StoreManager
+                            .openEnderChestIfAllowed(ctx.getServerHandler().playerEntity);
+                    });
                 return null;
             }
         }
@@ -332,7 +375,11 @@ public final class NetworkHandler {
             int n = buf.readShort();
             appIds = new java.util.ArrayList<>(Math.min(n, 256));
             for (int i = 0; i < n; i++) {
-                byte[] data = new byte[buf.readUnsignedByte()];
+                // 截断/伪造包防御：剩余字节不足一条记录（1 长度前缀 + ≥0 数据）即止。
+                if (buf.readableBytes() < 1) break;
+                int len = buf.readUnsignedByte();
+                if (buf.readableBytes() < len) break;
+                byte[] data = new byte[len];
                 buf.readBytes(data);
                 appIds.add(new String(data, java.nio.charset.StandardCharsets.UTF_8));
             }
@@ -365,6 +412,7 @@ public final class NetworkHandler {
     /** short 长度前缀 UTF 串（1.7.10 自定义包总量须 ≤ 32KB，字符串都很短）。 */
     private static String readUtf(ByteBuf buf) {
         int len = buf.readUnsignedShort();
+        if (buf.readableBytes() < len) len = buf.readableBytes();
         byte[] data = new byte[len];
         buf.readBytes(data);
         return new String(data, java.nio.charset.StandardCharsets.UTF_8);
@@ -372,8 +420,20 @@ public final class NetworkHandler {
 
     private static void writeUtf(ByteBuf buf, String s) {
         byte[] data = (s == null ? "" : s).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        buf.writeShort(Math.min(data.length, 600));
-        buf.writeBytes(data, 0, Math.min(data.length, 600));
+        int len = utf8Clamp(data, 600);
+        buf.writeShort(len);
+        buf.writeBytes(data, 0, len);
+    }
+
+    /**
+     * 字节封顶并按 UTF-8 码点边界回退：截断处落在续字节（10xxxxxx）上时
+     * 退回到首字节边界，避免 new String 产出 U+FFFD 乱码。
+     */
+    private static int utf8Clamp(byte[] data, int max) {
+        if (data.length <= max) return data.length;
+        int len = max;
+        while (len > 0 && (data[len] & 0xC0) == 0x80) len--;
+        return len;
     }
 
     /** 客户端 → 服务端：好友操作。op 0=申请(name) 1=接受(uuid) 2=拒绝(uuid) 3=删除(uuid) 4=传送(uuid)。 */
@@ -554,9 +614,13 @@ public final class NetworkHandler {
 
     /**
      * 服务端 → 客户端：消息推送。
-     * kind 0=历史批（拉取响应，整表替换） 1=单条新消息（追加） 2=图片字节（按需拉取的响应）。
+     * kind 0=历史批（拉取响应，多批连续发送，客户端按批追加） 1=单条新消息（追加）
+     * 2=图片字节（按需拉取的响应）。
      */
     public static class ChatMsgPush implements IMessage {
+
+        /** kind0 单批条数上限：32KB 包预算下 30 条（每条 meta ≤ 200B 文本）很宽裕。 */
+        public static final int HISTORY_BATCH = 30;
 
         public static class MsgMeta {
 
@@ -571,6 +635,8 @@ public final class NetworkHandler {
 
         public int kind;
         public String peer = "";
+        /** kind0 分批协议：true = 首批（客户端先清空该会话缓存再追加，避免二次拉取重复）。 */
+        public boolean batchStart;
         public List<MsgMeta> messages = new java.util.ArrayList<>();
         /** kind=2 的图片字节。 */
         public byte[] data;
@@ -581,9 +647,15 @@ public final class NetworkHandler {
         public ChatMsgPush() {}
 
         public static ChatMsgPush history(String peer, List<com.november.mcphone.feature.chat.ChatWorldData.Msg> msgs, UUID self) {
+            return history(peer, msgs, self, true);
+        }
+
+        /** @param batchStart 首批 true（客户端清空该会话后追加），后续批次 false。 */
+        public static ChatMsgPush history(String peer, List<com.november.mcphone.feature.chat.ChatWorldData.Msg> msgs, UUID self, boolean batchStart) {
             ChatMsgPush m = new ChatMsgPush();
             m.kind = 0;
             m.peer = peer;
+            m.batchStart = batchStart;
             for (com.november.mcphone.feature.chat.ChatWorldData.Msg msg : msgs) {
                 m.messages.add(meta(msg, self));
             }
@@ -628,12 +700,16 @@ public final class NetworkHandler {
         public void fromBytes(ByteBuf buf) {
             kind = buf.readByte();
             peer = readUtf(buf);
+            if (kind == 0) batchStart = buf.readByte() != 0;
             if (kind == 2) {
                 imageId = readUtf(buf);
                 w = buf.readInt();
                 h = buf.readInt();
-                data = new byte[buf.readInt()];
-                buf.readBytes(data);
+                int len = Math.min(buf.readInt(), 32767); // 伪造/截断包防御。
+                if (len > 0 && buf.isReadable(len)) {
+                    data = new byte[len];
+                    buf.readBytes(data);
+                }
                 return;
             }
             int n = kind == 0 ? buf.readUnsignedShort() : 1;
@@ -657,6 +733,7 @@ public final class NetworkHandler {
         public void toBytes(ByteBuf buf) {
             buf.writeByte(kind);
             writeUtf(buf, peer);
+            if (kind == 0) buf.writeByte(batchStart ? 1 : 0);
             if (kind == 2) {
                 writeUtf(buf, imageId);
                 buf.writeInt(w);
@@ -678,7 +755,12 @@ public final class NetworkHandler {
                     buf.writeInt(meta.w);
                     buf.writeInt(meta.h);
                 } else {
-                    writeUtf(buf, meta.text);
+                    // 预览文本 200 字节封顶（原 600B × 200 条会逼近 32KB 包上限）。
+                    byte[] data = (meta.text == null ? "" : meta.text)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    int len = utf8Clamp(data, 200);
+                    buf.writeShort(len);
+                    buf.writeBytes(data, 0, len);
                 }
             }
         }

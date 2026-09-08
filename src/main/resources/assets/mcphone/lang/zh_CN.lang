@@ -177,3 +177,8 @@ wp.mcphone.graphite=石墨
 
 msg.mcphone.home_drag_hint=长按图标拖动可排序（按存档保存）。
 
+
+msg.mcphone.store_buy_failed=§7[MC手机] §c购买失败：背包里没有 %s x%s。
+msg.mcphone.store_buy_success=§7[MC手机] §a购买成功，App 已解锁。
+msg.mcphone.store_locked=§7[MC手机] §c该 App 未解锁，请先在手机商店购买。
+msg.mcphone.store_locked_server=§7[MC手机] §c该 App 未解锁，请先在手机商店购买。

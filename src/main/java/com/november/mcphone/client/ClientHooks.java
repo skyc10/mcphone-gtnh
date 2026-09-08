@@ -121,10 +121,13 @@ public final class ClientHooks {
             com.november.mcphone.client.enhance.PlayTimeClient.onSync(playTime);
             com.november.mcphone.client.enhance.PlayTimeClient.refreshClockPage();
         }
-        // 离开世界：清空时长缓存与问候状态（换存档后未重新同步前不得展示旧值）。
+        // 离开世界：清空时长缓存、问候状态、商店已购缓存与聊天静态状态
+        // （换存档后未重新同步前不得展示旧值）。
         if (mc.theWorld == null) {
             com.november.mcphone.client.enhance.PlayTimeClient.reset();
             com.november.mcphone.client.enhance.GreetingToast.onWorldLeave();
+            StoreClient.reset();
+            com.november.mcphone.feature.chat.client.ChatClient.reset();
         } else if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
             // 手机打开期间做一次性问候（欢迎/深夜/连续 3h/世界总 100h）。
             com.november.mcphone.client.enhance.GreetingToast.onClientTick();

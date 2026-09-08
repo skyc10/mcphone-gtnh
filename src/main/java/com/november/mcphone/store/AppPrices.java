@@ -11,8 +11,8 @@ import com.november.mcphone.api.store.IAppPriceProvider;
 /**
  * App 价格表唯一权威（客户端画价与服务端扣物共用）：没报价 = 免费。
  *
- * <p>惰性扫描 SPI（首次查询时物品注册表已就绪）；内建报价 {@link BuiltinAppPrices}
- * 永远排第一，附属报价按 ServiceLoader 发现顺序追加，先到先得。</p>
+ * <p>惰性扫描 SPI（首次查询时物品注册表已就绪）；附属报价按 ServiceLoader 发现
+ * 顺序优先（先到先得，允许附属覆盖内建价），全部返回 null 才用内建报价兜底。</p>
  */
 public final class AppPrices {
 
@@ -45,8 +45,8 @@ public final class AppPrices {
         synchronized (AppPrices.class) {
             if (providers != null) return providers;
             list = new ArrayList<>();
-            list.add(new BuiltinAppPrices());
             try {
+                // SPI 优先（可覆盖内建价），内建报价兜底。
                 for (IAppPriceProvider p : ServiceLoader.load(
                     IAppPriceProvider.class, AppPrices.class.getClassLoader())) {
                     list.add(p);
@@ -54,6 +54,7 @@ public final class AppPrices {
             } catch (Throwable t) {
                 System.err.println("[mcphone] Price SPI scan failed: " + t);
             }
+            list.add(new BuiltinAppPrices());
             providers = list;
             return list;
         }

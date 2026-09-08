@@ -78,12 +78,29 @@ public final class PhoneCanvas {
     /**
      * 商店模式：开启后内建付费 App 需购买解锁（附属 App 始终免费可用）。
      * 默认关闭——关闭时与旧版行为完全一致。
+     *
+     * <p>UI 每帧都会查询，这里加内存缓存：首次读取落盘一次，之后只在写入时
+     * 更新缓存（避免每帧读盘）。</p>
      */
+    private static volatile boolean storeModeCache;
+    private static volatile boolean storeModeLoaded;
+
     public static boolean isStoreMode() {
-        return "true".equalsIgnoreCase(load().getProperty(KEY_STORE_MODE, "false").trim());
+        if (!storeModeLoaded) {
+            synchronized (PhoneCanvas.class) {
+                if (!storeModeLoaded) {
+                    storeModeCache = "true".equalsIgnoreCase(
+                        load().getProperty(KEY_STORE_MODE, "false").trim());
+                    storeModeLoaded = true;
+                }
+            }
+        }
+        return storeModeCache;
     }
 
     public static void setStoreMode(boolean on) {
+        storeModeCache = on;
+        storeModeLoaded = true;
         Properties p = load();
         p.setProperty(KEY_STORE_MODE, String.valueOf(on));
         save(p);
