@@ -177,7 +177,7 @@ public final class PhoneCanvas {
     private static final String KEY_UI_SCALE = "uiScalePercent";
     private static final String KEY_FONT_SCALE = "fontScale";
 
-    private static int clamp(int v, int min, int max) {
+    static int clamp(int v, int min, int max) {
         return Math.max(min, Math.min(max, v));
     }
 
@@ -251,5 +251,80 @@ public final class PhoneCanvas {
 
     public static void setClipped(boolean v) {
         clipped = v;
+    }
+
+    // ===================== 常显 HUD =====================
+
+    /** HUD 九宫格锚点合法值。 */
+    public static final java.util.List<String> HUD_ANCHORS = java.util.Arrays.asList(
+        "TOP_LEFT", "TOP_CENTER", "TOP_RIGHT",
+        "CENTER_LEFT", "CENTER", "CENTER_RIGHT",
+        "BOTTOM_LEFT", "BOTTOM_CENTER", "BOTTOM_RIGHT");
+
+    private static final int HUD_OFFSET_LIMIT = 4096;
+    private static final int HUD_SCALE_MIN = 40;
+    private static final int HUD_SCALE_MAX = 150;
+    private static final int HUD_SCALE_DEF = 60;
+
+    public static boolean isHudEnabled() {
+        return Boolean.parseBoolean(load().getProperty("hudEnabled", "true"));
+    }
+
+    public static void setHudEnabled(boolean v) {
+        Properties p = load();
+        p.setProperty("hudEnabled", Boolean.toString(v));
+        save(p);
+    }
+
+    public static String getHudAnchor() {
+        String a = load().getProperty("hudAnchor", "BOTTOM_RIGHT").trim().toUpperCase();
+        return HUD_ANCHORS.contains(a) ? a : "BOTTOM_RIGHT";
+    }
+
+    public static void setHudAnchor(String anchor) {
+        if (anchor == null) return;
+        Properties p = load();
+        p.setProperty("hudAnchor", anchor.trim().toUpperCase());
+        save(p);
+    }
+
+    public static int getHudOffsetX() {
+        return clamp(parseInt(load().getProperty("hudOffsetX", "0")), -HUD_OFFSET_LIMIT, HUD_OFFSET_LIMIT);
+    }
+
+    public static void setHudOffsetX(int v) {
+        Properties p = load();
+        p.setProperty("hudOffsetX", Integer.toString(clamp(v, -HUD_OFFSET_LIMIT, HUD_OFFSET_LIMIT)));
+        save(p);
+    }
+
+    public static int getHudOffsetY() {
+        return clamp(parseInt(load().getProperty("hudOffsetY", "0")), -HUD_OFFSET_LIMIT, HUD_OFFSET_LIMIT);
+    }
+
+    public static void setHudOffsetY(int v) {
+        Properties p = load();
+        p.setProperty("hudOffsetY", Integer.toString(clamp(v, -HUD_OFFSET_LIMIT, HUD_OFFSET_LIMIT)));
+        save(p);
+    }
+
+    public static int getHudScalePercent() {
+        return clamp(parseInt(load().getProperty("hudScalePercent",
+            Integer.toString(HUD_SCALE_DEF))), HUD_SCALE_MIN, HUD_SCALE_MAX);
+    }
+
+    public static void setHudScalePercent(int percent) {
+        Properties p = load();
+        p.setProperty("hudScalePercent",
+            Integer.toString(clamp(percent, HUD_SCALE_MIN, HUD_SCALE_MAX)));
+        save(p);
+    }
+
+    private static int parseInt(String s) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }

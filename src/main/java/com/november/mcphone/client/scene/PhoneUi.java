@@ -226,6 +226,23 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         return Math.max(100, panelH - statusH - homeH);
     }
 
+    /** 面板高度占屏比基准（HUD 等外部宿主按屏换算面板尺寸用）。 */
+    public static float basePanelHeight() {
+        return BASE_PANEL_HEIGHT;
+    }
+
+    /**
+     * 外部宿主（常显 HUD）设置面板逻辑尺寸：不改全局 uiScalePercent，
+     * 直接重写面板 preferred 尺寸并联动内容槽高度。
+     */
+    public void setPanelSize(int w, int h) {
+        panelW = clamp(w, 200, 900);
+        panelH = clamp(h, 320, 1400);
+        panel.setPreferredWidth(panelW);
+        panel.setPreferredHeight(panelH);
+        contentSlot.setPreferredHeight(contentHeight());
+    }
+
     public ItemStack phoneStack() {
         return phone;
     }

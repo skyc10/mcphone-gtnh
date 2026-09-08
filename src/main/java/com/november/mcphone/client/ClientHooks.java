@@ -21,6 +21,7 @@ public final class ClientHooks {
 
     public static KeyBinding keyPhone;
     public static KeyBinding keyShutter;
+    public static KeyBinding keyHud;
 
     /** WaypointSync 包在 netty 线程落地，客户端 tick 主线程应用。 */
     public static volatile java.util.List<com.november.mcphone.core.ItemPhone.Waypoint> pendingWaypointSync;
@@ -74,12 +75,17 @@ public final class ClientHooks {
     public static void preInit() {
         keyPhone = new KeyBinding("key.mcphone.phone", Keyboard.KEY_P, "MCphone");
         keyShutter = new KeyBinding("key.mcphone.shutter", Keyboard.KEY_C, "MCphone");
+        keyHud = new KeyBinding("key.mcphone.hud", Keyboard.KEY_G, "MCphone");
         ClientRegistry.registerKeyBinding(keyPhone);
         ClientRegistry.registerKeyBinding(keyShutter);
+        ClientRegistry.registerKeyBinding(keyHud);
         cpw.mods.fml.common.FMLCommonHandler.instance()
             .bus()
             .register(new ClientHooks());
+        // HUD 渲染转发监听的是 RenderGameOverlayEvent（Forge 总线）。
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ClientHooks());
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new CameraHandler.Overlay());
+        com.november.mcphone.client.hud.PhoneHud.init();
     }
 
     @SubscribeEvent
@@ -109,6 +115,12 @@ public final class ClientHooks {
         if (keyShutter.isPressed() && cameraMode && mc.currentScreen == null) {
             CameraHandler.pendingCapture = true;
         }
+        if (keyHud.isPressed()) {
+            PhoneCanvas.setHudEnabled(!PhoneCanvas.isHudEnabled());
+            mc.thePlayer.addChatMessage(new net.minecraft.util.ChatComponentText(
+                StatCollector.translateToLocal(PhoneCanvas.isHudEnabled()
+                    ? "msg.mcphone.hud_on" : "msg.mcphone.hud_off")));
+        }
         // 每 App 快捷键路由（无 GUI 时才会到这里；GUI 打开时键走 GuiScreen）。
         AppHotkeys.onKeyInput(mc, Keyboard.getEventKey(), Keyboard.getEventKeyState());
     }
@@ -118,8 +130,9 @@ public final class ClientHooks {
         if (event.phase != TickEvent.Phase.END) return;
         Minecraft mc = Minecraft.getMinecraft();
         if (cameraMode && mc.thePlayer == null) setCameraMode(false);
-        // 手机打开时驱动状态栏/时钟页的世界时钟。
-        if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null) {
+        // 手机打开或 HUD 常驻时驱动状态栏/时钟页的世界时钟。
+        if (com.november.mcphone.client.scene.PhoneUi.ACTIVE != null
+                || com.november.mcphone.client.hud.PhoneHud.get().hasUi()) {
             com.november.mcphone.client.scene.PhoneUi.tickClock();
         }
         // 延迟关屏（点击回调里 closePhone 的落地时机）。
@@ -190,10 +203,18 @@ public final class ClientHooks {
         CameraHandler.pendingCapture = false;
     }
 
-    private static ItemStack findPhone(Minecraft mc) {
+    public static ItemStack findPhone(Minecraft mc) {
         for (ItemStack s : mc.thePlayer.inventory.mainInventory) {
             if (s != null && s.getItem() instanceof com.november.mcphone.core.ItemPhone) return s;
         }
         return null;
+    }
+
+    /** 常显 HUD 渲染转发（CameraHandler.Overlay 已画完自己那部分之后调用）。 */
+    @cpw.mods.fml.common.eventhandler.SubscribeEvent
+    public void onRenderHudPost(net.minecraftforge.client.event.RenderGameOverlayEvent.Post event) {
+        if (event.type != net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType.ALL) return;
+        com.november.mcphone.client.hud.PhoneHud.get()
+            .renderHud(Minecraft.getMinecraft(), event.partialTicks);
     }
 }

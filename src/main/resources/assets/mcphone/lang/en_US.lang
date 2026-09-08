@@ -186,3 +186,6 @@ msg.mcphone.store_locked_server=§7[MCphone] §cThis App is locked. Buy it in th
 msg.mcphone.hotkey_capturing=§aPress any key to bind it to "%s" (Esc to cancel; press the same key again to clear).
 msg.mcphone.hotkey_conflict=§7[MCphone] §e%s hotkey %s conflicts with an existing keybind.
 msg.mcphone.clipped_hint=§6Some app left an unbalanced GL scissor; it was auto-corrected (reopen the offending app if it looks wrong).
+key.mcphone.hud=Toggle Phone HUD
+msg.mcphone.hud_on=§7[MCphone] §aPhone HUD shown. Left click = open, drag = move, Ctrl+wheel = resize.
+msg.mcphone.hud_off=§7[MCphone] §cPhone HUD hidden.
