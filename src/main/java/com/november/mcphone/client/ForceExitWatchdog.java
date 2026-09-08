@@ -91,6 +91,17 @@ public final class ForceExitWatchdog {
 
     /** 轮询「游戏退出已开始」信号；信号出现前绝不进入时间线（防误杀）。 */
     private static void watch() {
+        try {
+            watch0();
+        } catch (Throwable t) {
+            // 轮询线程任何早期失败（如数据目录创建失败）都不能让看门狗静默
+            // 消失 → 退回 v1 shutdown hook 兜底（baseDir 不可用时跳过 dump）。
+            System.err.println("[mcphone] ForceExitWatchdog: watcher crashed (" + t + "), shutdown hook fallback installed");
+            installLegacyHook(null);
+        }
+    }
+
+    private static void watch0() {
         // 游戏运行期捕获目录：退出阶段不可再调 Minecraft API。
         final File baseDir = PhoneCanvas.baseDir();
         Minecraft mc = safeMinecraft();
@@ -106,8 +117,13 @@ public final class ForceExitWatchdog {
         while (true) {
             boolean exiting;
             try {
-                exiting = (runningField != null && !runningField.getBoolean(mc))
-                    || threadByName(MAIN_THREAD_NAME) == null;
+                // mainThreadState() 返回 -1（探针故障）不算退出信号；若此时连
+                // running 字段也没有，则探测能力整体失效 → 退回 v1 兜底。
+                int st = mainThreadState();
+                if (st < 0 && runningField == null) {
+                    throw new IllegalStateException("thread probe failed, no running field");
+                }
+                exiting = (runningField != null && !runningField.getBoolean(mc)) || st == 1;
             } catch (Throwable t) {
                 // 探测能力意外失效 → 保守退回 v1 的 shutdown hook 方案兜底。
                 System.err.println("[mcphone] ForceExitWatchdog: signal probe failed, disarmed (" + t + "), shutdown hook fallback installed");
@@ -132,7 +148,8 @@ public final class ForceExitWatchdog {
 
     /**
      * 信号出现后的多级时间线。0–25s 只观察打日志；25s 按 Client thread 死活
-     * 分流；35s 无条件强杀。所有异常都吞掉，看门狗自身永不中断。
+     * 分流；35s 无条件强杀。各步骤自行吞异常；探针故障一律 fail-closed
+     * （按「仍有线程存活」处理，绝不当作干净退出提前收工）。
      */
     private static void runTimeline(File baseDir) {
         long deadline = System.currentTimeMillis() + GRACE_MS;
@@ -143,7 +160,8 @@ public final class ForceExitWatchdog {
                 nextSummary += SUMMARY_INTERVAL_MS;
                 logAliveNonDaemonSummary();
             }
-            // 宽限期内非守护线程自然清零是最好的结局，直接收工。
+            // 宽限期内非守护线程自然清零是最好的结局，直接收工。探针故障
+            // （-1=未知）不算清零：fail-closed，继续留在时间线上。
             if (aliveNonDaemons() == 0) {
                 System.err.println("[mcphone] ForceExitWatchdog: all non-daemon threads finished during grace period, exiting cleanly");
                 return;
@@ -152,16 +170,17 @@ public final class ForceExitWatchdog {
         logAliveNonDaemonSummary();
         dumpThreads(baseDir, (GRACE_MS / 1000) + "s");
 
-        Thread mainThread = threadByName(MAIN_THREAD_NAME);
+        int mainState = mainThreadState();
         if (aliveNonDaemons() == 0) {
             // 25s 整点复查：线程已全部清零，JVM 正在自然退出，不再插手。
             System.err.println("[mcphone] ForceExitWatchdog: no non-daemon threads left at "
                 + (GRACE_MS / 1000) + "s, letting JVM finish naturally");
             return;
         }
-        if (mainThread == null) {
-            // Client thread 已消亡、世界保存已完成：残留的任意非守护线程
-            // （不限 CEF）都是杀不掉进程的元凶 → 强制 halt。
+        if (mainState != 0) {
+            // Client thread 已消亡（或探针故障→fail-closed 保守强杀）、世界保存
+            // 已完成：残留的任意非守护线程（不限 CEF）都是杀不掉进程的元凶
+            // → 强制 halt。
             System.err.println("[mcphone] ForceExitWatchdog: Client thread finished but non-daemon threads remain, forcing halt");
             forceExitLoop(baseDir);
         } else {
@@ -171,7 +190,7 @@ public final class ForceExitWatchdog {
                 + (GRACE_MS / 1000) + "s (save may be stalled), extra "
                 + (EXTRA_GRACE_MS / 1000) + "s then unconditional halt");
             sleep(EXTRA_GRACE_MS);
-            if (threadByName(MAIN_THREAD_NAME) != null) {
+            if (mainThreadState() != 0) {
                 System.err.println("[mcphone] ForceExitWatchdog: Client thread still alive at "
                     + ((GRACE_MS + EXTRA_GRACE_MS) / 1000) + "s, forcing unconditional halt (saving likely deadlocked)");
                 forceExitLoop(baseDir);
@@ -287,27 +306,36 @@ public final class ForceExitWatchdog {
         } catch (Throwable ignored) {}
     }
 
+    /** 存活非守护线程数；-1 = 探测故障（未知），调用方必须按 fail-closed 处理。 */
     private static int aliveNonDaemons() {
-        int n = 0;
         try {
+            int n = 0;
             for (Thread t : Thread.getAllStackTraces().keySet()) {
                 if (!t.isDaemon() && t.isAlive()) {
                     n++;
                 }
             }
-        } catch (Throwable ignored) {}
-        return n;
+            return n;
+        } catch (Throwable ignored) {
+            return -1;
+        }
     }
 
-    private static Thread threadByName(String name) {
+    /**
+     * Client thread 状态探针：0=存活，1=已消亡，-1=探测故障（与「消亡」不可
+     * 混淆——故障时调用方按未知处理，宁可留在强杀时间线上也不当作干净退出）。
+     */
+    private static int mainThreadState() {
         try {
             for (Thread t : Thread.getAllStackTraces().keySet()) {
-                if (name.equals(t.getName()) && t.isAlive()) {
-                    return t;
+                if (MAIN_THREAD_NAME.equals(t.getName()) && t.isAlive()) {
+                    return 0;
                 }
             }
-        } catch (Throwable ignored) {}
-        return null;
+            return 1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
     }
 
     /** 与 MCEF 同款：Minecraft 里唯一的 volatile boolean 字段即 running。 */
@@ -351,8 +379,13 @@ public final class ForceExitWatchdog {
     }
 
     private static void dumpThreads(File baseDir, String phase) {
+        if (baseDir == null) {
+            System.err.println("[mcphone] shutdown dump skipped (no data dir): " + phase);
+            return;
+        }
         try {
-            File out = new File(baseDir, "shutdown-dump.txt");
+            // 按阶段命名：25s 的第一现场不被 force 阶段覆盖。
+            File out = new File(baseDir, "shutdown-dump-" + phase + ".txt");
             try (PrintWriter w = new PrintWriter(
                     new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8))) {
                 w.println("MCphone shutdown thread dump @ " + phase + " after quit signal");
