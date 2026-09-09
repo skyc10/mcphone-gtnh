@@ -2,7 +2,7 @@
 
 简体中文 | [English](README.en.md)
 
-把一部能用的智能手机塞进 GTNH —— 拍照、翻相册、换壁纸、记便签、多传送点传送、直连 AE2 通用无线终端，还能给自己那一部手机起个名。
+把一部能用的智能手机塞进 GTNH —— 拍照、翻相册、换壁纸、记便签、多传送点传送、直连 AE2 通用无线终端，每个 App 都能绑自定义快捷键，屏幕角落还能常驻一块迷你手机 HUD，还能给自己那一部手机起个名。
 
 > **这是什么**：由 skyc10 借助 AI 将 [november521/mcphone](https://github.com/november521/mcphone)（原版，主线为 Minecraft 1.21.1 + NeoForge）**移植并重写**适配 **GTNH 2.9** 的版本——原 mod 出自 november521，本仓库（skyc10）维护 GTNH 移植分支。
 > 目标环境：**GTNH 2.9.0-beta-3**（Minecraft 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify）。

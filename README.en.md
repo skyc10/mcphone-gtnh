@@ -5,7 +5,7 @@ English | [简体中文](README.md)
 > [!NOTE]
 > This is the English readme. The project's default page is [简体中文 (README.md)](README.md).
 
-A working smartphone inside GTNH — take photos, browse a gallery, change wallpapers, jot notes, teleport between multiple waypoints, and connect straight to an AE2 Quantum/Universal Wireless Terminal. You can even name your phone.
+A working smartphone inside GTNH — take photos, browse a gallery, change wallpapers, jot notes, teleport between multiple waypoints, connect straight to an AE2 Quantum/Universal Wireless Terminal, launch any app with a custom hotkey, and keep a mini phone always on screen as a HUD. You can even name your phone.
 
 > **What is this**: skyc10, with the help of an AI coding assistant, **ported and rewrote** [november521/mcphone](https://github.com/november521/mcphone) (the original, mainline: Minecraft 1.21.1 + NeoForge) for **GTNH 2.9** — the original mod is by november521; this repository (skyc10) maintains the GTNH port.
 > Target environment: **GTNH 2.9.0-beta-3** (Minecraft 1.7.10 + Forge 1614, Java 17+ runtime, lwjgl3ify).
@@ -51,6 +51,17 @@ Hold it and right-click to power on; with the phone in your inventory, **P** als
 | 🖼 Gallery | Thumbnail grid, full-size viewer, delete, one-click set-as-wallpaper. Photos live in `.minecraft/mcphone/photos/` (**shared across saves**) — you can also drop any PNG into that folder and the gallery reads it |
 | ⚙️ Settings | Device naming, wallpaper reset, plus **UI size** (50–150%), **font size** (50–500%) and **button text size** (50–250%) sliders — applied on release, great for high-resolution displays |
 | 🗂 App Manager | One row per app: click to enable/disable (applied on next launch), ↑/↓ to reorder home-screen icons, order persisted |
+| ⌨️ App Hotkeys | In the App Manager, hit the "key" button on a row and press any combo (e.g. CTRL+SHIFT+K) to bind it; the hotkey jumps straight to that app — page apps open the phone first, direct-action apps fire immediately. Esc cancels, pressing the same key again clears the binding |
+| 📟 Always-on HUD | While the phone is in your inventory, a mini phone stays pinned to a screen corner (bottom-right at 60% by default): left-click to open the full phone, drag to move, **Ctrl+wheel** to resize (40–150%), **G** to hide/show, with nine edge anchors |
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| P | Open/close the phone |
+| C | Camera shutter (while framing) |
+| G | Toggle the always-on HUD |
+| Per-app hotkeys | Bind yourself in the App Manager, see the table above |
 
 ## For developers / AI handover
 
