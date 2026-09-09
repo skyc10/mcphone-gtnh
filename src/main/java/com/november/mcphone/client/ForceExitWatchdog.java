@@ -58,6 +58,15 @@ import cpw.mods.fml.relauncher.SideOnly;
  * {@link #STALE_BEAT_MS} 判死）。三条线程全部死亡/冻结时由外部杀手的心跳断更
  * 兜底——这就是 v2 失效场景（内部线程没走完时间线）的解。</p>
  *
+ * <p><b>v3.1 修正</b>（dummy 端到端复现 + 2026-09-09 两次卡死取证）：模板链的
+ * flag / 心跳两分支本身都能杀，卡死的真正缺口是 (1) 退出清理阶段 JVM 整体冻结
+ * 时 flag 没人写（内部线程与主线程一起冻死）；(2) 杀手侧零观测，是否运行过全靠
+ * 猜。修正：最早注册的 shutdown hook 一进退出流程就写 flag（抢在冻结点前立起
+ * 外部杀手的触发器）；杀手 ps1 自带 {@code ext-watchdog.log} 记录启动/触发/杀完；
+ * spawn 后轮询确认杀手真的起来了，失败退回直启 powershell；{@code touchHb}/
+ * {@code writeFlag} 去掉 synchronized（v3 持锁做文件 I/O，FS 卡顿会拖死三条内部
+ * 线程）。</p>
+ *
  * <p>{@code -Dmcphone.exitwatchdog=false} 整体禁用；
  * {@code -Dmcphone.exitwatchdog.externalgrace=<秒>}（默认 35）flag 触发后的外部
  * 强杀延迟；{@code -Dmcphone.exitwatchdog.hbstall=<秒>}（默认 90）心跳断更判定。
@@ -109,6 +118,8 @@ public final class ForceExitWatchdog {
     private static int extGraceSec = 35;
     private static int hbStallSec = 90;
     private static volatile boolean flagWritten;
+    /** 外部杀手 ps1 的自记日志（ext-watchdog.log），与主日志分开便于诊断杀手侧。 */
+    private static File killerLogFile;
     private static volatile long beatA;
     private static volatile long beatB;
     private static volatile long beatHb;
@@ -152,6 +163,7 @@ public final class ForceExitWatchdog {
             + "s, external kill: flag +" + extGraceSec + "s or heartbeat stall " + hbStallSec + "s)");
         long now = System.currentTimeMillis();
         beatA = beatB = beatHb = now;
+        installEarlyFlagHook();
         startThread('A');
         startThread('B');
         startThread('H');
@@ -502,7 +514,33 @@ public final class ForceExitWatchdog {
             + "s if process still alive");
     }
 
-    private static synchronized void touchHb() {
+    /**
+     * 写 flag 的最早入口：注册时作为 shutdown hook 挂上（JVM 退出流程的第一批
+     * 钩子）。v3 的取证教训：退出清理阶段（SoundSystem/JCEF native 关闭）JVM 可能
+     * 整体冻结，内部轮询线程来不及写 flag；hook 在退出流程一开始就执行，抢在
+     * 冻结点之前把外部杀手的触发器立起来。文件操作全部吞异常——hook 里任何抛出
+     * 都会终止后续钩子。
+     */
+    private static void installEarlyFlagHook() {
+        if (flagFile == null) {
+            return;
+        }
+        try {
+            Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        writeFlag("early shutdown hook");
+                    } catch (Throwable ignored) {}
+                }
+            }, "mcphone-exit-early-flag"));
+        } catch (Throwable t) {
+            FileLog.log("early flag hook install failed (" + t + ")");
+        }
+    }
+
+    /** 心跳触碰：不持锁（v3 的问题：synchronized + 文件 I/O，FS 卡顿会拖死三条线程），同 pid 单写者无竞争。 */
+    private static void touchHb() {
         if (hbFile == null) {
             return;
         }
@@ -544,36 +582,66 @@ public final class ForceExitWatchdog {
         return -1L;
     }
 
+    /**
+     * 生成并启动外部杀手。v3.1 改动：
+     * <ul>
+     * <li>ps1 自带日志 {@code ext-watchdog.log}（杀手侧观测：启动/循环心跳/触发/
+     *     杀完的 rc 全落盘）——v3 取证时杀手是否运行过完全靠猜，这是最大盲区。</li>
+     * <li>spawn 后轮询等待杀手日志里出现 started 行（wscript 链完全异步，失败
+     *     无声）；确认失败则退回直启 powershell，再不行才放弃。</li>
+     * <li>任务名带 pid（{@code mcphone-ext-kill-<pid>}）且 wscript 起的进程树用
+     *     /F 杀不掉时也不影响——杀手自己 5 分钟无触发即自杀退出，不留僵尸。</li>
+     * </ul>
+     */
     private static void spawnExternalKiller(long pid) {
         File ps1 = new File(baseDir, "ext-watchdog.ps1");
         File vbs = new File(baseDir, "ext-watchdog-launch.vbs");
+        killerLogFile = new File(baseDir, "ext-watchdog.log");
         String flagPath = psQuote(flagFile.getAbsolutePath());
         String hbPath = psQuote(hbFile.getAbsolutePath());
+        String logPath = psQuote(killerLogFile.getAbsolutePath());
         StringBuilder sb = new StringBuilder();
-        sb.append("# MCphone external exit watchdog v3 (generated at runtime, safe to delete)\r\n");
+        sb.append("# MCphone external exit watchdog v3.1 (generated at runtime, safe to delete)\r\n");
         sb.append("$ErrorActionPreference = 'SilentlyContinue'\r\n");
         sb.append("$targetPid = ").append(pid).append("\r\n");
         sb.append("$flagFile = ").append(flagPath).append("\r\n");
         sb.append("$hbFile = ").append(hbPath).append("\r\n");
+        sb.append("$logFile = ").append(logPath).append("\r\n");
         sb.append("$flagGraceSec = ").append(extGraceSec).append("\r\n");
         sb.append("$hbStallSec = ").append(hbStallSec).append("\r\n");
+        sb.append("function KLog([string]$msg) {\r\n");
+        sb.append("    try { Add-Content -LiteralPath $logFile -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' ' + $msg) -Encoding UTF8 } catch {}\r\n");
+        sb.append("}\r\n");
+        sb.append("KLog ('=== ext-killer start pid=' + $targetPid + ' pid$=' + $PID + ' flagGrace=' + $flagGraceSec + 's hbStall=' + $hbStallSec + 's')\r\n");
+        // 兜底自毁：5 分钟内既没 flag 也没心跳停跳就退出，防止僵尸杀手误杀
+        // 下一个会话（hb/flag 文件名带 pid，正常不会；这是双保险）。
+        sb.append("$deadline = (Get-Date).AddMinutes(5)\r\n");
         sb.append("while ($true) {\r\n");
         sb.append("    if (Test-Path -LiteralPath $flagFile) {\r\n");
+        sb.append("        KLog 'flag seen, waiting grace then kill'\r\n");
         sb.append("        Start-Sleep -Seconds $flagGraceSec\r\n");
-        sb.append("        if (Get-Process -Id $targetPid) { taskkill /F /T /PID $targetPid | Out-Null }\r\n");
+        sb.append("        if (Get-Process -Id $targetPid) {\r\n");
+        sb.append("            KLog 'target still alive after grace, taskkill'\r\n");
+        sb.append("            taskkill /F /T /PID $targetPid | Out-Null\r\n");
+        sb.append("            KLog ('taskkill (flag) rc=' + $LASTEXITCODE)\r\n");
+        sb.append("        } else { KLog 'target gone during grace, no kill needed' }\r\n");
         sb.append("        break\r\n");
         sb.append("    }\r\n");
-        sb.append("    if (-not (Get-Process -Id $targetPid)) { break }\r\n");
+        sb.append("    if (-not (Get-Process -Id $targetPid)) { KLog 'target gone, exiting'; break }\r\n");
         sb.append("    $hb = Get-Item -LiteralPath $hbFile\r\n");
         sb.append("    if ($hb) {\r\n");
         sb.append("        $staleSec = ((Get-Date) - $hb.LastWriteTime).TotalSeconds\r\n");
         sb.append("        if ($staleSec -gt $hbStallSec) {\r\n");
+        sb.append("            KLog ('heartbeat stalled ' + [math]::Round($staleSec, 1) + 's > ' + $hbStallSec + 's, taskkill')\r\n");
         sb.append("            taskkill /F /T /PID $targetPid | Out-Null\r\n");
+        sb.append("            KLog ('taskkill (stall) rc=' + $LASTEXITCODE)\r\n");
         sb.append("            break\r\n");
         sb.append("        }\r\n");
         sb.append("    }\r\n");
+        sb.append("    if ((Get-Date) -gt $deadline) { KLog '5min deadline, exiting without kill'; break }\r\n");
         sb.append("    Start-Sleep -Seconds 2\r\n");
         sb.append("}\r\n");
+        sb.append("KLog 'ext-killer exit'\r\n");
         // UTF-16LE（带 BOM）保证含中文/空格的路径在 Windows PowerShell 5 下可读。
         try (FileOutputStream out = new FileOutputStream(ps1)) {
             out.write(new byte[] {(byte) 0xFF, (byte) 0xFE});
@@ -591,23 +659,53 @@ public final class ForceExitWatchdog {
             FileLog.log("external killer launcher write failed: " + t);
             return;
         }
+        // 就绪确认：杀手 ps1 的第一件事是写 started 行。wscript 链完全异步
+        // （v3 的坑：spawn 成功 ≠ 杀手真跑起来了，且失败无声），轮询 10s 等
+        // 日志出现；等不到就直启 powershell 兜底再试一轮。
+        long before = killerLogFile.exists() ? killerLogFile.length() : -1L;
+        spawnViaWscript(vbs, ps1);
+        if (waitForKillerStart(before, 10000)) {
+            return;
+        }
+        FileLog.log("killer start NOT confirmed via wscript within 10s, falling back to direct powershell");
+        try {
+            new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-WindowStyle", "Hidden", "-File", ps1.getAbsolutePath())
+                .redirectErrorStream(true).start();
+        } catch (Throwable t2) {
+            FileLog.log("external killer spawn failed entirely: " + t2);
+            return;
+        }
+        if (!waitForKillerStart(before, 10000)) {
+            FileLog.log("external killer failed to start via both paths (check ext-watchdog.log / AV)");
+        }
+    }
+
+    private static void spawnViaWscript(File vbs, File ps1) {
         try {
             // wscript //B：完全无窗口（直接 powershell -WindowStyle Hidden 会闪
             // 一下黑框）。wscript 立即返回，PowerShell 留在后台盯 flag/心跳。
             new ProcessBuilder("wscript.exe", "//B", vbs.getAbsolutePath())
                 .redirectErrorStream(true).start();
-            FileLog.log("external killer spawned via wscript (pid " + pid
-                + ", flagGrace " + extGraceSec + "s, hbStall " + hbStallSec + "s)");
         } catch (Throwable t) {
-            try {
-                new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                        "-WindowStyle", "Hidden", "-File", ps1.getAbsolutePath())
-                    .redirectErrorStream(true).start();
-                FileLog.log("external killer spawned via powershell fallback (" + t + ")");
-            } catch (Throwable t2) {
-                FileLog.log("external killer spawn failed entirely: " + t2);
-            }
+            FileLog.log("wscript spawn failed (" + t + "), will try direct powershell");
         }
+    }
+
+    /** 轮询杀手日志出现新增（started 行写入即有新增）直到确认或超时。 */
+    private static boolean waitForKillerStart(long sizeBefore, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            sleep(500);
+            try {
+                if (killerLogFile != null && killerLogFile.exists()
+                        && killerLogFile.length() > sizeBefore) {
+                    FileLog.log("external killer confirmed running (ext-watchdog.log grew)");
+                    return true;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return false;
     }
 
     /** PowerShell 单引号字符串转义（路径里的 ' 翻倍）。 */
