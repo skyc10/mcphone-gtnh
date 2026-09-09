@@ -265,6 +265,8 @@ public final class PhoneCanvas {
     private static final int HUD_SCALE_MIN = 40;
     private static final int HUD_SCALE_MAX = 150;
     private static final int HUD_SCALE_DEF = 60;
+    /** 默认左中：GTNH 右侧有 NEI 侧栏，底部有聊天/热键栏。 */
+    private static final String HUD_ANCHOR_DEF = "CENTER_LEFT";
 
     public static boolean isHudEnabled() {
         return Boolean.parseBoolean(load().getProperty("hudEnabled", "true"));
@@ -277,8 +279,8 @@ public final class PhoneCanvas {
     }
 
     public static String getHudAnchor() {
-        String a = load().getProperty("hudAnchor", "BOTTOM_RIGHT").trim().toUpperCase();
-        return HUD_ANCHORS.contains(a) ? a : "BOTTOM_RIGHT";
+        String a = load().getProperty("hudAnchor", HUD_ANCHOR_DEF).trim().toUpperCase();
+        return HUD_ANCHORS.contains(a) ? a : HUD_ANCHOR_DEF;
     }
 
     public static void setHudAnchor(String anchor) {

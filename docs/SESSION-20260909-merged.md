@@ -80,7 +80,7 @@
 - 新文件 `client/hud/PhoneHud.java`（单例）：常驻独立 PhoneUi 实例 `hudUi`；`ensureUi` 仅在屏幕尺寸/hudScale 变化时重建（构造后还原 `PhoneUi.ACTIVE` 防抢占）；`panelSize()`=屏高×`PhoneUi.basePanelHeight()`(0.62f)×hudScale% clamp(320,1100)，宽=高×0.56 clamp(200,620)；`panelOrigin()` 九锚点 margin=24；tick 内左键拖拽（位移<4px=点击开机，否则落盘 offset）、Ctrl+滚轮缩放（±10 步进 40–150）、`pointerY=displayHeight-Mouse.getY()-1`；`renderHud()` 与 McScreenBridge.drawScreen 同构（自设 glOrtho→`prepareMainUiRenderState`→compositor/snapshotService beginFrame→`UiHostRenderSupport.createRenderContext(...)`→`hudUi.render(...)`→`GlAttribDepth.popExcess`）；玩家/world null 时 `disposeUi()`。
 - `PhoneUi.java`：新增 `public static float basePanelHeight()` 与 `public void setPanelSize(int w,int h)`（clamp 200–900/320–1400）。
 - `client/ClientHooks.java`：`keyHud`（G 键 `key.mcphone.hud`）+ onKeyInput 切换（`msg.mcphone.hud_on/off`）；时钟 tick 加 `PhoneHud.get().hasUi()`；`findPhone` 改 public static；新增 `onRenderHudPost`（ElementType.ALL）转发。
-- `PhoneCanvas`：`hudEnabled`（默认 true）/`hudAnchor`（九锚点默认 BOTTOM_RIGHT）/`hudOffsetX/Y`（±4096）/`hudScalePercent`（40–150 默认 60）；`clamp` 改包可见 static。
+- `PhoneCanvas`：`hudEnabled`（默认 true）/`hudAnchor`（九锚点，**默认 CENTER_LEFT**，2026-09-10 由 BOTTOM_RIGHT 改）/`hudOffsetX/Y`（±4096）/`hudScalePercent`（40–150 默认 60）；`clamp` 改包可见 static。
 
 **关键设计决策（Why）**：
 1. HUD 不复用 PhoneScreen/PhoneUi 全屏实例——`McScreenBridge.onGuiClosed()`（/home/c/c/Qz-UILib/.../ui/screen/McScreenBridge.java:308）必然 `surface.dispose()` 并关 compositor/snapshot/adapters，PhoneUi 实例不能跨 Screen 复用，关屏必重建；HUD 用独立常驻实例。
@@ -89,6 +89,14 @@
 4. 热键捕获在 PhoneScreen.keyTyped 拦截——GUI 内按键走 GuiScreen、GUI 外走 ClientHooks，两路天然分流。
 5. appmgr 的 hotkeyButton 点击用 postAction 包裹（回调里改场景树防 CME，PhoneUi.postAction 队列延迟到渲染帧首）。
 6. 热键仅键盘不做鼠标（可后续加 MouseEvent 路由）。
+
+### 功能 4：HUD 位置/裁剪修复（2026-09-10，master.38 dirty，待游戏内验证）
+- 用户报告：HUD「显示位置不正确，并且只显示了一部分，应该显示在左侧」。根因两个：
+  1. **默认锚点错**：`PhoneCanvas.getHudAnchor()` 默认 `BOTTOM_RIGHT`（右侧 NEI 侧栏遮挡），与验收「常显在左侧」矛盾；实例 settings.properties 无 `hudAnchor` 键 → 走默认。
+  2. **HUD 面板内容被裁一半**：`ensureUi` 先 `new PhoneUi(phone)`（构造内 `applyPanelSize()` 按全屏×全局 uiScalePercent=150 建面板 562×1004 + buildHomeGrid 大网格），随后 `setPanelSize` 缩到 ~225×402 只改 panel/contentSlot preferred——**主页网格单元（`iconCell` 的 `cellW`/`label.setMaxTextWidth`）与 `devName.setMaxTextWidth(panelW-90)` 都是构建时定值**，大网格塞小面板溢出被 `panel.setClipChildren(true)` 裁掉。uilib 渲染链（pipeline 按 absX/absY 平移、windowClip=null 不裁）排查后无嫌疑。
+- 修复：① `PhoneCanvas` 默认锚点改 `CENTER_LEFT`（HUD_ANCHOR_DEF 常量，getHudAnchor 两处引用）；② `PhoneUi` 新增构造器 `(ItemStack, int hudW, int hudH)`——显式面板尺寸一次建对外壳/网格/文本宽度，`PhoneHud.ensureUi` 改用它（删 setPanelSize 调用）；③ `buildHomeGrid` 列数自适应：`panelW>=360 → 3 列，>=210 → 2 列，否则 1 列`（旧 `cellW=max(80,…)` 下限在窄面板必溢出）；④ `setPanelSize` 兜底重建页面（HOME→rebuildPage，App 页→openApp）防再被误用为半套更新。
+- 取证方法：uilib 源码在 /home/c/c/Qz-UILib/（sources jar 同目录 build/libs），比反编译 libs/ 里的 dev jar 快得多。
+- jar 已部署实例（mcphone-v1.0.2-master.38+b25aff2690-dirty.jar，替换 master.36）。**待办：游戏重启验证 HUD 左中显示 + 内容完整。**
 
 ## 五、GUI 测试结果（GTNH 2.9.0-beta-3，329 mods 全载，存档 test）
 

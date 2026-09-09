@@ -244,7 +244,7 @@ public final class PhoneHud {
 
     /**
      * 保证 HUD 专用 PhoneUi 实例与当前屏幕/HUD 缩放匹配。HUD 缩放不走全局
-     * uiScalePercent（静态共享会污染全屏实例），改用 setPanelSize 重写实例面板。
+     * uiScalePercent（静态共享会污染全屏实例），实例直接按 HUD 面板尺寸构造。
      */
     private void ensureUi(Minecraft mc, ItemStack phone, int screenW, int screenH) {
         int scalePct = PhoneCanvas.getHudScalePercent();
@@ -252,11 +252,10 @@ public final class PhoneHud {
                 || builtForScale != scalePct) {
             disposeUi();
             PhoneUi prev = PhoneUi.ACTIVE;
-            hudUi = new PhoneUi(phone);
+            int[] size = panelSize(screenW, screenH);
+            hudUi = new PhoneUi(phone, size[0], size[1]);
             // PhoneUi 构造会抢占 ACTIVE（全屏实例指针/时钟语义），立即还原。
             PhoneUi.ACTIVE = prev;
-            int[] size = panelSize(screenW, screenH);
-            hudUi.setPanelSize(size[0], size[1]);
             builtForWidth = screenW;
             builtForHeight = screenH;
             builtForScale = scalePct;

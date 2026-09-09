@@ -93,11 +93,25 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     private int panelH;
 
     public PhoneUi(ItemStack phoneStack) {
+        this(phoneStack, 0, 0);
+    }
+
+    /**
+     * 外部宿主（常显 HUD）用：显式给定面板逻辑尺寸构建，外壳/主页网格/文本
+     * 宽度全部一次建对。先按全屏尺寸构建再缩小（旧 setPanelSize 路径）会让
+     * 大尺寸的网格单元与文本残留，溢出被面板裁剪（HUD 只显示一半的根因）。
+     */
+    public PhoneUi(ItemStack phoneStack, int hudPanelW, int hudPanelH) {
         super(new LwjglInputSource(new LwjglStateReader()));
         runtime.__enableMotion();
         this.phone = phoneStack;
         clientWaypoints = new java.util.ArrayList<>(ItemPhone.getWaypoints(phoneStack));
-        applyPanelSize();
+        if (hudPanelW > 0 && hudPanelH > 0) {
+            panelW = clamp(hudPanelW, 200, 900);
+            panelH = clamp(hudPanelH, 320, 1400);
+        } else {
+            applyPanelSize();
+        }
         buildShell();
         buildHomeGrid();
         ACTIVE = this;
@@ -233,7 +247,8 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
     /**
      * 外部宿主（常显 HUD）设置面板逻辑尺寸：不改全局 uiScalePercent，
-     * 直接重写面板 preferred 尺寸并联动内容槽高度。
+     * 重写面板 preferred 尺寸并联动内容槽与主页网格（网格单元/文本宽度
+     * 均在构建时按面板尺寸定值，必须一并重建，否则溢出被面板裁剪）。
      */
     public void setPanelSize(int w, int h) {
         panelW = clamp(w, 200, 900);
@@ -241,6 +256,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         panel.setPreferredWidth(panelW);
         panel.setPreferredHeight(panelH);
         contentSlot.setPreferredHeight(contentHeight());
+        if (currentPageId == null) {
+            rebuildPage();
+        } else {
+            openApp(currentPageId);
+        }
     }
 
     public ItemStack phoneStack() {
@@ -387,7 +407,9 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         final java.util.List<String> cellIds = new java.util.ArrayList<>();
         final HomeDrag drag = new HomeDrag();
 
-        int perRow = 3;
+        // 列数随面板宽度自适应：80px 单元下限 ×3 列 + 间距/内边距 ≈ 360px 起；
+        // HUD 小窗（宽可到 200）放 3 列必然横向溢出被裁，降为 2 列（极窄 1 列）。
+        int perRow = panelW >= 360 ? 3 : panelW >= 210 ? 2 : 1;
         int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);
         int box = Math.min(84, cellW - 8);
         for (int i = 0; i < apps.size(); i += perRow) {
