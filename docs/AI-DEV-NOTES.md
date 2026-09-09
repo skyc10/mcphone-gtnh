@@ -59,7 +59,12 @@ com.november.mcphone
 7. **FML ASM 事件监听器必须是 public 具名静态类**：匿名内部类（`new Object(){ @SubscribeEvent }`）或包私有类会让 ASM 代理跨类加载器调用时抛 IllegalAccessError 崩服务端线程（CameraHandler.Overlay、HandSwapTickHook、CrossDimTeleportHook 都是这么修的）。
 8. **`@SideOnly(CLIENT)` 不能标 CommonProxy 方法**：专用服务端会裁剪成员导致 NoSuchMethodError。客户端逻辑放 ClientProxy 覆写（ClientProxy 里 `initApps/postInitApps` 调 PhoneApi 注册——**这两个覆写曾丢失导致主屏只剩附属 App，见 #9**）。
 9. **注册调用链脆弱**：`MCphone.init → proxy.initApps() → PhoneApi.registerBuiltins()`。改代理类时务必确认这条链还在。
-10. **退出挂起**：MCEF/JCEF 关闭钩子卡死在原生 CEF（线程转储实锤：RUNNABLE 无 Java 栈）。看门狗 `ForceExitWatchdog`：shutdown 钩子**自身同步执行**（不能派守护子线程——关闭早期会被杀）8s 转储线程栈到 `mcphone/shutdown-dump.txt`、15s `Runtime.halt(0)`。根治=附属浏览器做 MCEF 惰性初始化。
+10. **退出挂起**：MCEF/JCEF 关闭钩子卡死在原生 CEF（线程转储实锤：RUNNABLE 无 Java 栈）。根治=附属浏览器做 MCEF 惰性初始化。看门狗 `ForceExitWatchdog` **v3**（2026-09-09，v2 实测失效后重写）：
+    - **v2 失效取证**：19:31 armed 后零输出、无 25s dump，而附属看门狗（同一个 running 字段）正常检测到退出——v2 时间线没走完且只打 stderr（log4j 一死输出全丢），死后无法诊断；强杀依赖 JVM 内部线程，退出冻结期本身不可靠。
+    - **v3 三层**：①文件日志 `mcphone/exit-watchdog.log`（256KB 轮转 .1，三条内部线程各 60s 一条 alive 心跳，死后可诊断哪条线程活到几点）；②最小探测器 B 只读 volatile `Minecraft.running`（绝不碰 getAllStackTraces），连续 2 次读到 false 就写 flag `.exit-flag-<pid>`；③**JVM 外部杀手**（仅 Windows）：运行时生成 `mcphone/ext-watchdog.ps1`（UTF-16LE 带 BOM——含中文路径在 PowerShell 5 下必须如此）+ `ext-watchdog-launch.vbs`，wscript //B 隐藏启动（直接 powershell -WindowStyle Hidden 会闪黑框）；flag 出现等 35s → `taskkill /F /T /PID`；心跳 `.exit-hb-<pid>` 断更 90s（三条线程全冻=v2 式失效）→ 同样强杀；目标进程消失→脚本自退。参数：`-Dmcphone.exitwatchdog=false` 禁用、`externalgrace=<秒>`、`hbstall=<秒>`。
+    - **内部时间线照旧**（daemon 轮询，running=false 或 Client thread 消亡连续 2 次→25s 宽限→halt 策略链：直调 halt→反射 halt→FML exitJava→System.exit，全失败 30s 重试；Client thread 仍活再宽 10s）。三线程互为看门狗（beat 超 10s 判死重启同伴）。
+    - **实测**（2026-09-09 Windows）：flag 链路（8s grace 击杀 ping 靶）、心跳断更链路（stall 6s 击杀）、wscript+vbs 隐藏启动链（vbs 只收 ps1 路径单参数，参数烤进脚本内容）全部通过。
+    - flag/hb/ps1/vbs 都在实例 mcphone 数据目录，可随时手删；同 pid 复用时 Java 侧自动清旧 flag。
 11. **RFG 映射差异**（对照 MCP 记忆）：`Entity.rayTrace(double,float)`（不是 rayTraceBlocks）、`Entity.setPositionAndUpdate` 存在、槽位包是 `S2FPacketSetSlot`、`Container.inventorySlots`、`Slot.isSlotInInventory/getSlotIndex`。
 12. **Jabel/工具链**：Qz-UILib 构建需要 Azul Zulu 25；用户级 `%USERPROFILE%\.gradle\gradle.properties` 的 `org.gradle.java.installations.paths` **覆盖**项目配置——新 JDK 要加到用户级那份里。
 
