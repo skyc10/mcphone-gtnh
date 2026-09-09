@@ -613,9 +613,13 @@ public final class ForceExitWatchdog {
         sb.append("    try { Add-Content -LiteralPath $logFile -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' ' + $msg) -Encoding UTF8 } catch {}\r\n");
         sb.append("}\r\n");
         sb.append("KLog ('=== ext-killer start pid=' + $targetPid + ' pid$=' + $PID + ' flagGrace=' + $flagGraceSec + 's hbStall=' + $hbStallSec + 's')\r\n");
-        // 兜底自毁：5 分钟内既没 flag 也没心跳停跳就退出，防止僵尸杀手误杀
-        // 下一个会话（hb/flag 文件名带 pid，正常不会；这是双保险）。
-        sb.append("$deadline = (Get-Date).AddMinutes(5)\r\n");
+        // 寿命与会话时长解耦（v3.1 教训：固定 5 分钟 TTL 在长会话退出前自毁，
+        // flag 写下时已无杀手读它）。deadline 只由心跳新鲜度顺延：hb mtime 比
+        // 上次记录的 stamp 新（=游戏仍在 touch 心跳）→ deadline 推到
+        // now + hbStallSec + 60s 并更新 stamp；hb 停跳超 hbStallSec 本就触发
+        // stall 击杀，不存在"游戏活着但 deadline 到点"的空窗。
+        sb.append("$deadline = (Get-Date).AddSeconds(" + (hbStallSec + 60) + ")\r\n");
+        sb.append("$hbStamp = $null\r\n");
         sb.append("while ($true) {\r\n");
         sb.append("    if (Test-Path -LiteralPath $flagFile) {\r\n");
         sb.append("        KLog 'flag seen, waiting grace then kill'\r\n");
@@ -630,6 +634,11 @@ public final class ForceExitWatchdog {
         sb.append("    if (-not (Get-Process -Id $targetPid)) { KLog 'target gone, exiting'; break }\r\n");
         sb.append("    $hb = Get-Item -LiteralPath $hbFile\r\n");
         sb.append("    if ($hb) {\r\n");
+        sb.append("        if ($hbStamp -and $hb.LastWriteTime -gt $hbStamp) {\r\n");
+        sb.append("            KLog 'heartbeat fresh, deadline extended'\r\n");
+        sb.append("            $deadline = (Get-Date).AddSeconds($hbStallSec + 60)\r\n");
+        sb.append("        }\r\n");
+        sb.append("        $hbStamp = $hb.LastWriteTime\r\n");
         sb.append("        $staleSec = ((Get-Date) - $hb.LastWriteTime).TotalSeconds\r\n");
         sb.append("        if ($staleSec -gt $hbStallSec) {\r\n");
         sb.append("            KLog ('heartbeat stalled ' + [math]::Round($staleSec, 1) + 's > ' + $hbStallSec + 's, taskkill')\r\n");
@@ -638,7 +647,7 @@ public final class ForceExitWatchdog {
         sb.append("            break\r\n");
         sb.append("        }\r\n");
         sb.append("    }\r\n");
-        sb.append("    if ((Get-Date) -gt $deadline) { KLog '5min deadline, exiting without kill'; break }\r\n");
+        sb.append("    if ((Get-Date) -gt $deadline) { KLog 'deadline reached, exiting without kill'; break }\r\n");
         sb.append("    Start-Sleep -Seconds 2\r\n");
         sb.append("}\r\n");
         sb.append("KLog 'ext-killer exit'\r\n");
@@ -660,14 +669,16 @@ public final class ForceExitWatchdog {
             return;
         }
         // 就绪确认：杀手 ps1 的第一件事是写 started 行。wscript 链完全异步
-        // （v3 的坑：spawn 成功 ≠ 杀手真跑起来了，且失败无声），轮询 10s 等
-        // 日志出现；等不到就直启 powershell 兜底再试一轮。
+        // （v3 的坑：spawn 成功 ≠ 杀手真跑起来了，且失败无声），轮询等日志
+        // 出现；等不到就直启 powershell 兜底再试一轮。确认窗 20s：实测
+        // wscript→PowerShell 冷启动 11.3s，10s 窗必超时 → 每次都误判失败
+        // 转直启造成双 spawn。
         long before = killerLogFile.exists() ? killerLogFile.length() : -1L;
         spawnViaWscript(vbs, ps1);
-        if (waitForKillerStart(before, 10000)) {
+        if (waitForKillerStart(before, 20000)) {
             return;
         }
-        FileLog.log("killer start NOT confirmed via wscript within 10s, falling back to direct powershell");
+        FileLog.log("killer start NOT confirmed via wscript within 20s, falling back to direct powershell");
         try {
             new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                     "-WindowStyle", "Hidden", "-File", ps1.getAbsolutePath())
@@ -676,7 +687,7 @@ public final class ForceExitWatchdog {
             FileLog.log("external killer spawn failed entirely: " + t2);
             return;
         }
-        if (!waitForKillerStart(before, 10000)) {
+        if (!waitForKillerStart(before, 20000)) {
             FileLog.log("external killer failed to start via both paths (check ext-watchdog.log / AV)");
         }
     }

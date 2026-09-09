@@ -98,6 +98,14 @@
 - 取证方法：uilib 源码在 /home/c/c/Qz-UILib/（sources jar 同目录 build/libs），比反编译 libs/ 里的 dev jar 快得多。
 - jar 已部署实例（mcphone-v1.0.2-master.38+b25aff2690-dirty.jar，替换 master.36）。**待办：游戏重启验证 HUD 左中显示 + 内容完整。**
 
+### 功能 5：退出看门狗 v3.2 修复（2026-09-10，master.39 dirty，活体验证过、待游戏内验证）
+- 用户报告「游戏结束看门狗仍然不起作用」。子代理取证（证据链闭环）：上一局（23:29–23:36）跑的是 jar36（旧模板 `AddMinutes(5)`），杀手 23:35:29.851 按 5 分钟 deadline 自毁（ext-watchdog.log:2），flag 23:36:19.302 才写（.exit-flag-7376）——**杀手死了 50 秒后 flag 才立起**，环节(b)「spawn 成功但提前自毁」。心跳/检测/flag 写入全程正常。
+- **v3.1 遗留 bug**：工作区未提交的「deadline 顺延」修复残缺——`$hbStamp` 只声明未使用（ForceExitWatchdog.java:621），顺延逻辑根本没写；jar38 的杀手 TTL 实为固定 150s（90+60），比旧 300s 更短，从未游戏验证即被取证发现。
+- 修复三处（ForceExitWatchdog.java）：① 补完顺延逻辑：ps1 循环内 hb 存在时 `if ($hbStamp -and $hb.LastWriteTime -gt $hbStamp) { KLog 'heartbeat fresh, deadline extended'; $deadline = (Get-Date).AddSeconds($hbStallSec + 60) }` + `$hbStamp = $hb.LastWriteTime`——心跳一直新鲜则 deadline 一直顺延，停跳即走 stall 击杀，不存在「游戏活着 deadline 到点」空窗；② 文案 '5min deadline'→'deadline reached'；③ wscript 确认窗 10s→20s（实测 PowerShell 冷启动 11.3s > 10s 必超时 → 每次误判失败转直启双 spawn）。
+- **活体验证通过**（Windows PowerShell 5.1，targetPid=PING.EXE、hbStall=12s、deadline=72s）：心跳期间 8 次 `heartbeat fresh, deadline extended`，停跳 12.3s 触发 `heartbeat stalled 12.3s > 12s, taskkill` rc=0，目标被杀、杀手正常 exit。
+- 验证方法备忘：从 Java sb.append 模板用 python 提取拼 ps1（UTF-16LE **单** BOM——python `encode('utf-16')` 自带 BOM 会双 BOM 首行报错；killer.log 是 UTF-8 非 UTF-16；Parser::ParseFile 只查语法，活跑才能验证逻辑）。
+- jar39（mcphone-v1.0.2-master.39+7ae1357584-dirty.jar）已部署实例替换 jar38。**待办：游戏内验证——正常退出 35s grace 内 javaw 消失、ext-watchdog.log 出现 flag seen→kill 链；长会话（>5min）杀手不再提前自毁。**
+
 ## 五、GUI 测试结果（GTNH 2.9.0-beta-3，329 mods 全载，存档 test）
 
 ### ✅ 通过项
