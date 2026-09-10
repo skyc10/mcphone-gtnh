@@ -50,14 +50,15 @@
 - **dummy 端到端复现结论**：旧模板的 flag 分支和 hb-stall 分支在干净环境都能正常杀（wscript→vbs→ps1 链 ✓）——卡死缺口不在模板逻辑，而在 (1) 冻结时 flag 没人写；(2) 杀手不可观测。
 - 教训：PowerShell 里 `$_` 在 wsl bash 内联调用要写 `\$_`；查询命令的 CommandLine 自匹配会让进程计数恒为 1，判断杀手是否退出必须排除查询自身；sed 不能编辑 UTF-16LE 文件（会产出只剩 BOM 的空壳）。
 
-### v3.2 修正（2026-09-10，`a2f905b`，jar master.41 已部署）——杀手寿命与会话时长解耦
+### v3.2 修正（2026-09-10，`33a5d51`+`a2f905b`，jar master.41 已部署）——杀手寿命与会话时长解耦
 
-**v3.1 游戏内实测定罪**：pid 7376 会话（master.36）部署/加载/spawn 确认/flag 写入全部正常——探测器在 JVM 冻结前一瞬抓到 running=false，flag 23:36:19.302 写下；但杀手 23:30:17 启动带固定 5min TTL，**23:35:29 已自毁**（ext-watchdog.log: `5min deadline, exiting without kill`），flag 落地时无杀手可读，外部击杀永不发生。任何 >5min 的会话必复现。
-次要发现：wscript 分支生产环境静默未起（10s 未确认，powershell 直启兜底成功起杀手）；ext-watchdog.ps1 grep KLog=11 确认 v3.1 模板已部署。
+**v3.1 游戏内实测定罪**（pid 7376 会话，jar36）：部署/加载/spawn 确认/flag 写入全部正常——探测器在 JVM 冻结前一瞬抓到 running=false，flag 23:36:19.302 写下；但杀手 23:30:17 启动带固定 5min TTL，**23:35:29 已自毁**（ext-watchdog.log: `5min deadline, exiting without kill`），flag 落地时无杀手可读，外部击杀永不发生。任何 >5min 的会话必复现。
 
-- **deadline 心跳顺延式**：hb mtime 比上次轮询新 → deadline 推到 now+hbStallSec+60s；hb 停跳超 hbStallSec 本就触发 stall 击杀 → 不存在"游戏活着但 deadline 到点"的空窗（顺延是正常路径，不逐条记日志防刷屏）。
-- **vbs 自记日志** `ext-watchdog.vbs.log`（每会话重开）：`vbs launcher alive, spawning powershell` + `vbs Run rc=N Err=描述`——下次失效可直接分辨"wscript 没执行"vs"vbs Run 失败"；wscript 绝对路径调用不赌 PATH。
-- **dummy 端到端验证全过**（hbStall=15s 短周期）：hb 顺延跨 deadline 存活 t=102s 无 deadline 行 ✓、stall 击杀 rc=0 ✓、flag 分支 rc=0 ✓、vbs 双参数链+日志 ✓。
+迭代史（两轮提交）：
+- `33a5d51`（凌晨）：① 补完顺延逻辑——工作区残缺版 `$hbStamp` 只声明未使用，jar38 的杀手 TTL 实为固定 150s（90+60），比旧 300s 更短，从未游戏验证即被取证发现；② wscript 确认窗 10s→20s（实测 wscript→PowerShell 冷启动 **11.3s**：7376 会话的杀手 start 行 23:30:28.769 = spawn 后 11.3s，wscript 链其实成功了，10s 窗必超时 → 误判失败转直启**双 spawn**）；③ PING.EXE 活体验证过。
+- `a2f905b`（上午）：① 去掉顺延成功时逐 2s 一条的 `heartbeat fresh, deadline extended` 日志（会刷爆文件，顺延是正常路径）；② **vbs 自记日志** `ext-watchdog.vbs.log`（每会话重开）：`vbs launcher alive, spawning powershell` + `vbs Run rc=N Err=描述`，下次失效可直接分层定位 wscript 层 vs vbs 层；wscript 绝对路径调用不赌 PATH；③ dummy 端到端复验全过（hbStall=15s 短周期：hb 顺延跨 deadline=75s 存活 t=102s 无 deadline 行 ✓、stall 击杀 rc=0 ✓、flag 分支 rc=0 ✓、vbs 双参数链+日志 ✓）。
+
+机制：hb mtime 比上次轮询新 → deadline 推到 now+hbStallSec+60s；hb 停跳超 hbStallSec 本就触发 stall 击杀 → 不存在"游戏活着但 deadline 到点"的空窗。
 
 ### v3.1 修正（`5bedf3b`）
 
@@ -107,13 +108,9 @@
 - 取证方法：uilib 源码在 /home/c/c/Qz-UILib/（sources jar 同目录 build/libs），比反编译 libs/ 里的 dev jar 快得多。
 - jar 已部署实例（mcphone-v1.0.2-master.38+b25aff2690-dirty.jar，替换 master.36）。**待办：游戏重启验证 HUD 左中显示 + 内容完整。**
 
-### 功能 5：退出看门狗 v3.2 修复（2026-09-10，master.39 dirty，活体验证过、待游戏内验证）
-- 用户报告「游戏结束看门狗仍然不起作用」。子代理取证（证据链闭环）：上一局（23:29–23:36）跑的是 jar36（旧模板 `AddMinutes(5)`），杀手 23:35:29.851 按 5 分钟 deadline 自毁（ext-watchdog.log:2），flag 23:36:19.302 才写（.exit-flag-7376）——**杀手死了 50 秒后 flag 才立起**，环节(b)「spawn 成功但提前自毁」。心跳/检测/flag 写入全程正常。
-- **v3.1 遗留 bug**：工作区未提交的「deadline 顺延」修复残缺——`$hbStamp` 只声明未使用（ForceExitWatchdog.java:621），顺延逻辑根本没写；jar38 的杀手 TTL 实为固定 150s（90+60），比旧 300s 更短，从未游戏验证即被取证发现。
-- 修复三处（ForceExitWatchdog.java）：① 补完顺延逻辑：ps1 循环内 hb 存在时 `if ($hbStamp -and $hb.LastWriteTime -gt $hbStamp) { KLog 'heartbeat fresh, deadline extended'; $deadline = (Get-Date).AddSeconds($hbStallSec + 60) }` + `$hbStamp = $hb.LastWriteTime`——心跳一直新鲜则 deadline 一直顺延，停跳即走 stall 击杀，不存在「游戏活着 deadline 到点」空窗；② 文案 '5min deadline'→'deadline reached'；③ wscript 确认窗 10s→20s（实测 PowerShell 冷启动 11.3s > 10s 必超时 → 每次误判失败转直启双 spawn）。
-- **活体验证通过**（Windows PowerShell 5.1，targetPid=PING.EXE、hbStall=12s、deadline=72s）：心跳期间 8 次 `heartbeat fresh, deadline extended`，停跳 12.3s 触发 `heartbeat stalled 12.3s > 12s, taskkill` rc=0，目标被杀、杀手正常 exit。
-- 验证方法备忘：从 Java sb.append 模板用 python 提取拼 ps1（UTF-16LE **单** BOM——python `encode('utf-16')` 自带 BOM 会双 BOM 首行报错；killer.log 是 UTF-8 非 UTF-16；Parser::ParseFile 只查语法，活跑才能验证逻辑）。
-- jar39（mcphone-v1.0.2-master.39+7ae1357584-dirty.jar）已部署实例替换 jar38。**待办：游戏内验证——正常退出 35s grace 内 javaw 消失、ext-watchdog.log 出现 flag seen→kill 链；长会话（>5min）杀手不再提前自毁。**
+### 功能 5：退出看门狗 v3.2（2026-09-10）→ 已并入第三节「v3.2 修正」，以该节为准
+
+（本节原为凌晨 `33a5d51` 的独立记录：取证结论、残缺工作区修复、20s 确认窗、PING 活体验证——与第三节合并后的 v3.2 章节内容重复，保留标题占位避免外部引用断链，细节看第三节。）
 
 ## 五、GUI 测试结果（GTNH 2.9.0-beta-3，329 mods 全载，存档 test）
 
