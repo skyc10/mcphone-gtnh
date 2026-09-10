@@ -601,7 +601,7 @@ public final class ForceExitWatchdog {
         String hbPath = psQuote(hbFile.getAbsolutePath());
         String logPath = psQuote(killerLogFile.getAbsolutePath());
         StringBuilder sb = new StringBuilder();
-        sb.append("# MCphone external exit watchdog v3.1 (generated at runtime, safe to delete)\r\n");
+        sb.append("# MCphone external exit watchdog v3.2 (generated at runtime, safe to delete)\r\n");
         sb.append("$ErrorActionPreference = 'SilentlyContinue'\r\n");
         sb.append("$targetPid = ").append(pid).append("\r\n");
         sb.append("$flagFile = ").append(flagPath).append("\r\n");
@@ -635,7 +635,7 @@ public final class ForceExitWatchdog {
         sb.append("    $hb = Get-Item -LiteralPath $hbFile\r\n");
         sb.append("    if ($hb) {\r\n");
         sb.append("        if ($hbStamp -and $hb.LastWriteTime -gt $hbStamp) {\r\n");
-        sb.append("            KLog 'heartbeat fresh, deadline extended'\r\n");
+        // 正常路径每 2s 都会顺延，不逐条记日志（会刷爆文件）
         sb.append("            $deadline = (Get-Date).AddSeconds($hbStallSec + 60)\r\n");
         sb.append("        }\r\n");
         sb.append("        $hbStamp = $hb.LastWriteTime\r\n");
@@ -647,7 +647,7 @@ public final class ForceExitWatchdog {
         sb.append("            break\r\n");
         sb.append("        }\r\n");
         sb.append("    }\r\n");
-        sb.append("    if ((Get-Date) -gt $deadline) { KLog 'deadline reached, exiting without kill'; break }\r\n");
+        sb.append("    if ((Get-Date) -gt $deadline) { KLog 'deadline reached with stale/missing heartbeat, exiting without kill'; break }\r\n");
         sb.append("    Start-Sleep -Seconds 2\r\n");
         sb.append("}\r\n");
         sb.append("KLog 'ext-killer exit'\r\n");
@@ -660,8 +660,19 @@ public final class ForceExitWatchdog {
             return;
         }
         StringBuilder vb = new StringBuilder();
-        vb.append("' MCphone external exit watchdog launcher v3 (generated, safe to delete)\r\n");
-        vb.append("CreateObject(\"WScript.Shell\").Run \"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"\"\" & WScript.Arguments(0) & \"\"\"\", 0, False\r\n");
+        vb.append("' MCphone external exit watchdog launcher v3.2 (generated, safe to delete)\r\n");
+        // v3.1 生产实锤：wscript 分支没起来且死因被吞（ps1 的 $ErrorActionPreference
+        // 也救不了 vbs 自身）。这里 vbs 自己写 launcher 日志：活着/Run 返回/Err 描述，
+        // 下次失效可直接分辨"wscript 没执行"vs"vbs 里 Run 失败"。
+        vb.append("On Error Resume Next\r\n");
+        vb.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n");
+        vb.append("Set sh = CreateObject(\"WScript.Shell\")\r\n");
+        vb.append("logPath = WScript.Arguments(1)\r\n");
+        vb.append("Set logf = fso.OpenTextFile(logPath, 8, True)\r\n");
+        vb.append("logf.WriteLine Now & \" vbs launcher alive, spawning powershell\"\r\n");
+        vb.append("rc = sh.Run(\"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"\"\" & WScript.Arguments(0) & \"\"\"\", 0, False)\r\n");
+        vb.append("logf.WriteLine Now & \" vbs Run rc=\" & rc & \" Err=\" & Err.Description\r\n");
+        vb.append("logf.Close\r\n");
         try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(vbs), StandardCharsets.US_ASCII)) {
             w.write(vb.toString());
         } catch (Throwable t) {
@@ -674,7 +685,9 @@ public final class ForceExitWatchdog {
         // wscript→PowerShell 冷启动 11.3s，10s 窗必超时 → 每次都误判失败
         // 转直启造成双 spawn。
         long before = killerLogFile.exists() ? killerLogFile.length() : -1L;
-        spawnViaWscript(vbs, ps1);
+        File vbsLog = new File(baseDir, "ext-watchdog.vbs.log");
+        vbsLog.delete(); // 每会话重开，避免旧会话日志混淆判读
+        spawnViaWscript(vbs, ps1, vbsLog);
         if (waitForKillerStart(before, 20000)) {
             return;
         }
@@ -692,11 +705,12 @@ public final class ForceExitWatchdog {
         }
     }
 
-    private static void spawnViaWscript(File vbs, File ps1) {
+    private static void spawnViaWscript(File vbs, File ps1, File vbsLog) {
         try {
             // wscript //B：完全无窗口（直接 powershell -WindowStyle Hidden 会闪
             // 一下黑框）。wscript 立即返回，PowerShell 留在后台盯 flag/心跳。
-            new ProcessBuilder("wscript.exe", "//B", vbs.getAbsolutePath())
+            // 第二个参数 = vbs 自记日志路径；用绝对路径调 wscript 不依赖 PATH。
+            new ProcessBuilder("wscript.exe", "//B", vbs.getAbsolutePath(), vbsLog.getAbsolutePath())
                 .redirectErrorStream(true).start();
         } catch (Throwable t) {
             FileLog.log("wscript spawn failed (" + t + "), will try direct powershell");
