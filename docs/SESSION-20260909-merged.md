@@ -50,15 +50,24 @@
 - **dummy 端到端复现结论**：旧模板的 flag 分支和 hb-stall 分支在干净环境都能正常杀（wscript→vbs→ps1 链 ✓）——卡死缺口不在模板逻辑，而在 (1) 冻结时 flag 没人写；(2) 杀手不可观测。
 - 教训：PowerShell 里 `$_` 在 wsl bash 内联调用要写 `\$_`；查询命令的 CommandLine 自匹配会让进程计数恒为 1，判断杀手是否退出必须排除查询自身；sed 不能编辑 UTF-16LE 文件（会产出只剩 BOM 的空壳）。
 
-### v3.1 修正（`5bedf3b`，jar 已部署）
+### v3.2 修正（2026-09-10，`a2f905b`，jar master.41 已部署）——杀手寿命与会话时长解耦
+
+**v3.1 游戏内实测定罪**：pid 7376 会话（master.36）部署/加载/spawn 确认/flag 写入全部正常——探测器在 JVM 冻结前一瞬抓到 running=false，flag 23:36:19.302 写下；但杀手 23:30:17 启动带固定 5min TTL，**23:35:29 已自毁**（ext-watchdog.log: `5min deadline, exiting without kill`），flag 落地时无杀手可读，外部击杀永不发生。任何 >5min 的会话必复现。
+次要发现：wscript 分支生产环境静默未起（10s 未确认，powershell 直启兜底成功起杀手）；ext-watchdog.ps1 grep KLog=11 确认 v3.1 模板已部署。
+
+- **deadline 心跳顺延式**：hb mtime 比上次轮询新 → deadline 推到 now+hbStallSec+60s；hb 停跳超 hbStallSec 本就触发 stall 击杀 → 不存在"游戏活着但 deadline 到点"的空窗（顺延是正常路径，不逐条记日志防刷屏）。
+- **vbs 自记日志** `ext-watchdog.vbs.log`（每会话重开）：`vbs launcher alive, spawning powershell` + `vbs Run rc=N Err=描述`——下次失效可直接分辨"wscript 没执行"vs"vbs Run 失败"；wscript 绝对路径调用不赌 PATH。
+- **dummy 端到端验证全过**（hbStall=15s 短周期）：hb 顺延跨 deadline 存活 t=102s 无 deadline 行 ✓、stall 击杀 rc=0 ✓、flag 分支 rc=0 ✓、vbs 双参数链+日志 ✓。
+
+### v3.1 修正（`5bedf3b`）
 
 - **early flag hook**：注册时挂最早 shutdown hook，一进退出流程就写 flag——抢在冻结点前立起外部杀手触发器（冻结场景唯一可靠信号源）。
-- **杀手自记日志** `mcphone/ext-watchdog.log`（KLog，UTF8 append）：`=== ext-killer start`（含目标 pid/杀手 pid$/参数）/flag seen/heartbeat stalled Xs/taskkill rc=N/ext-killer exit 全落盘；另加 **5 分钟无触发自毁**防僵尸杀手。
+- **杀手自记日志** `mcphone/ext-watchdog.log`（KLog，UTF8 append）：`=== ext-killer start`（含目标 pid/杀手 pid$/参数）/flag seen/heartbeat stalled Xs/taskkill rc=N/ext-killer exit 全落盘；~~另加 5 分钟无触发自毁防僵尸杀手~~（**此项是 v3.2 定罪的设计缺陷，已被心跳顺延式取代**）。
 - **spawn 就绪确认**：spawn 后轮询杀手日志出现新增 10s（started 行），确认失败退回直启 `powershell -WindowStyle Hidden`，再失败才放弃并记日志。
 - `touchHb`/`writeFlag` 去 synchronized：不再持 class 锁做文件 I/O（v3 里 FS 卡顿会拖死三条内部线程）。同 pid 单写者无竞争，writeFlag 幂等靠 flagWritten volatile。
 - v3.1 杀手模板已 dummy 验证：KLog 日志逐行落盘、stall 分支 rc=0、wscript 链正常。
 
-**下次启动验证**：`mcphone/exit-watchdog.log` 应出现 `=== session start: watchdog v3, pid=...` + `armed` + `external killer confirmed running (ext-watchdog.log grew)`，`mcphone/ext-watchdog.log` 应有 `=== ext-killer start` 行；正常退出进程应自然结束或最迟 flag 后 ~35s 被外部击杀（杀手日志可查全过程）；若再挂死收 exit-watchdog.log + ext-watchdog.log + shutdown-dump-*.txt；若误杀调大 extGraceSec/hbStallSec 或关掉。
+**下次启动验证（v3.2）**：`mcphone/exit-watchdog.log` 应出现 `=== session start: watchdog v3, pid=...` + `armed` + `external killer confirmed running (ext-watchdog.log grew)`；`mcphone/ext-watchdog.log` 应有 `=== ext-killer start` 行且**不再出现 `5min deadline` / `deadline reached`**；`ext-watchdog.vbs.log` 若缺失 = wscript 层没执行，若有 `Run rc=0` 但无杀手 start = vbs 里 powershell 启动失败；正常退出进程应自然结束或最迟 flag 后 ~35s 被外部击杀（ext-watchdog.log 可查全过程）；若再挂死收三份日志 exit-watchdog.log + ext-watchdog.log + ext-watchdog.vbs.log + shutdown-dump-*.txt；若误杀调大 extGraceSec/hbStallSec 或关掉。
 
 ## 四、三大系统能力实现细节（已提交，编译+构建验证过，游戏内手感待验证）
 
