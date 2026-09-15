@@ -42,13 +42,16 @@ import com.november.mcphone.core.ItemPhone;
  * <pre>
  * root (COLUMN 居中，透明)
  *   └ panel (COLUMN，圆角面板，液态玻璃 + 壁纸为背景图)
- *       ├ statusBar  (ROW：时钟 + 设备名，玻璃条)
+ *       ├ statusBar  (ROW：信号 + 设备名 + 时钟；上游版式 = 左信号、右时间，玻璃条)
  *       ├ contentSlot (COLUMN，显式高度，单槽页面挂载点，玻璃内容底板)
  *       └ homeBar    (ROW：主页按钮，玻璃导航条)
  * </pre>
  *
- * <p><b>液态玻璃（v3）</b>：主面板 / 状态栏 / 内容底板 / 导航条四个面全部经
- * {@link #glassify} 取 {@code PhoneGlass} 令牌（底色 + backdrop），旧常量
+ * <p><b>液态玻璃（v3）</b>：<b>只有主面板</b>经 {@link #glassify} 取 {@code PhoneGlass} 令牌
+ * （底色 + backdrop）；状态栏 / 内容底板 / 导航条 / 主屏网格经 {@link #glassifySurfaceOnly}
+ * 只取底色、<b>不挂 backdrop</b>——子面挂 backdrop 会把壁纸整块盖掉（回放序：父节点自身
+ * IMAGE 早于子节点 BACKDROP，而 backdrop 回放是不透明覆盖该矩形），这是「换壁纸只提示成功、
+ * 界面无变化」的根因。旧常量
  * {@code COL_BG 0xF20E1116} / {@code COL_STATUS_BG 0x99000000} / {@code COL_PAGE_BG 0x900E1116}
  * 已淘汰——它们的 alpha（95% / 60% 纯黑 / 56%）会按层次契约把玻璃盖死
  * （{@code ScenePaintEngine.java:417-438} 规定 BACKDROP 先于 BACKGROUND 发出）。</p>
@@ -76,7 +79,44 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
     // ===================== 液态玻璃表面令牌（旧配色已淘汰，§9.3/§9.4） =====================
 
-    private static final int COL_BORDER = 0xFF39404B;
+    /**
+     * 一像素分隔线 / 描边色 —— 上游常量 {@code PhoneTheme.COLOR_DIVIDER}
+     * （upstream-mcphone@v1.10.2 {@code shared/src/main/java/com/november/mcphone/core/client/PhoneTheme.java:109}
+     * = {@code 0x44FFFFFF}，白 27%）；上游所有分隔线都是 1px：
+     * {@code g.fill(x, y, x + w, y + 1, PhoneTheme.COLOR_DIVIDER)}
+     * （例：{@code feature/store/client/AppStore.java:207}、
+     * {@code feature/settings/client/SettingsList.java:88}、
+     * {@code feature/store/client/AppDetail.java:135}）。
+     *
+     * <p>上游另有一条更淡的同族常量 {@code COLOR_DIVIDER_FAINT}
+     * （同文件 :112 = {@code 0x22FFFFFF}，只用在关于页的次级分组）：
+     * 本文件没有次级分隔线可用，故不引入（未引入项记在 P1 报告里）。</p>
+     *
+     * <p>本文件里的 1px 线一共两处，本轮一并收口：面板外框
+     * {@link #COL_BORDER}（原 {@code 0xFF39404B}）与主屏图标盒描边
+     * （原 {@code 0x2EFFFFFF}，按上游图标形态<b>删除</b>，见 {@code iconCell}）。</p>
+     */
+    private static final int COLOR_DIVIDER = 0x44FFFFFF;
+
+    /**
+     * 面板外框（1px，改动前 {@code 0xFF39404B} 不透明板岩色）
+     * —— 统一到 {@link #COLOR_DIVIDER}。
+     *
+     * <p><b>为什么敢把不透明外框降成半透明白</b>：① 设计文档自己就是这么建议的 ——
+     * {@code docs/qz-liquid-glass-design.md:968}（P10）原文「{@code COL_BORDER = 0xFF39404B}
+     * 保留（边框是倒角载体）→ 玻璃面下建议降到 {@code 0x55FFFFFF}
+     * 量级以出亮边}」，{@code 0x44FFFFFF} 与之同一量级，也正是上游分隔线的取值；
+     * ② 宽度一字未动（仍是 1px）⇒ 绘制路径与几何完全不变。</p>
+     *
+     * <p><b>Qz 4.10.0 实际口径（javap + 源码核对）</b>：{@code borderWidth>0} ⇒
+     * {@code ScenePaintEngine.java:534-543} 发一条 BORDER 命令（用节点的边框色/宽/圆角）；
+     * 本类不经 {@code SceneSurfaceBinder}，节点的 {@code surfaceElevation} 保持默认 {@code -1.0f}
+     * （{@code ScenePaintProps.java:27}）⇒ <b>不走</b> {@code SceneSurfaceReliefPainter} 的浮雕通道
+     * （那条要 {@code elevation >= 0}，{@code ScenePaintEngine.java:502}）。
+     * 改色因此在 paint 层等价于「把外框从深板岩换成 27% 白」，
+     * 不牵动布局、命中与玻璃挂载（glassify / glassifySurfaceOnly 一行未动）。</p>
+     */
+    private static final int COL_BORDER = COLOR_DIVIDER;
 
     /**
      * 面板圆角（改动前 22，不动）。面板是玻璃的<b>倒角载体</b>：&gt;20 才挂得住液态缘带
@@ -93,8 +133,8 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
      * 与 {@code COL_STATUS_BG = 0x99000000}（60% 纯黑）就是「把玻璃盖死」的元凶，已删除。</p>
      *
      * <p>{@link #glassSurface} 是本类<b>唯一</b>产出玻璃面底色的入口，它保证产出的
-     * ARGB alpha 通道 &le; 本参考值（grep 可复核：本文件里 alpha ≥ 0xE6 的字面色值
-     * 只剩 {@code COL_BORDER} 这一处「倒角载体」边框色）。底色数值本身由
+     * ARGB alpha 通道 &le; 本参考值（grep 可复核：本文件里 alpha ≥ 0xE6 的<b>面底色</b>一处也没有
+     * —— 唯一的 1px 描边 {@code COL_BORDER} 本轮已按上游 {@code COLOR_DIVIDER} 降到 0x44）。底色数值本身由
      * {@link com.november.mcphone.client.enhance.PhoneGlass#surface} 按档反解
      * （与材质档 tint 合成后落在裁定的总遮罩上），本文件不自行造色值。</p>
      */
@@ -141,6 +181,9 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     /**
      * 玻璃面挂载：底色 + backdrop 一次到位（建树期调用一次）。
      *
+     * <p><b>只给主面板（{@link #buildPanel}）用</b>：子面（状态栏 / 内容槽 / 导航条 / 主屏网格）
+     * 一律用 {@link #glassifySurfaceOnly}，否则会把壁纸整块盖掉（成因见该方法注释）。</p>
+     *
      * <p>开关关闭 / Qz 玻璃类缺失时 {@code PhoneGlass.surface} 自动回中性非玻璃底色，
      * {@code apply} 静默失败 ⇒ 观感是「无玻璃的中性面板」，不保留旧深灰方案。</p>
      */
@@ -148,6 +191,31 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         if (node == null) return;
         node.setBackgroundColor(glassSurface(role));
         com.november.mcphone.client.enhance.PhoneGlass.apply(node, role);
+    }
+
+    /**
+     * 子面玻璃降级挂载：<b>只取底色，不挂 backdrop</b>（建树期调用一次）。
+     *
+     * <p><b>为什么子面不能挂 backdrop</b>（「换壁纸只提示成功、界面无变化」的根因，r2_F §5.2）：
+     * Qz 的绘制计划是「父节点自身 fragment 先入 plan，然后才递归子节点」
+     * （{@code ScenePaintEngine.java:242/249/264-268}），而同一节点内 IMAGE 晚于 BACKDROP
+     * （{@code :414-459}）⇒ 壁纸确实画在<b>面板自己那层玻璃之上</b>，但三个子面的 BACKDROP
+     * 全部排在壁纸 IMAGE <b>之后</b>；backdrop 回放又是
+     * {@code glColor4f(1,1,1,1)} + {@code glDisable(GL_BLEND)} 之后把「主层快照（不含壁纸）」
+     * 整块盖进该节点矩形（{@code UiBackdropFilterRenderer.java:167-168/189-191}，首块 quad 在
+     * glEnable(GL_BLEND) 之前）⇒ 每个子面 = 该矩形被整块替换为模糊快照。而
+     * 状态栏 + 内容槽 + 导航条的高度之和 = 面板高（{@code contentHeight() = panelH - statusH - homeH}，
+     * panel 无 padding）⇒ 壁纸可见面积 ≈ 0。</p>
+     *
+     * <p>降级后仍走 {@link #glassSurface} 的同一套「档位 ↔ 底色 ↔ alpha 预算」裁定
+     * （{@code PhoneGlass.surface} 内部仍按档/角色/强度解算），所以开关、档位、强度变化照旧即时
+     * 反映在底色上，只是不再有模糊与液态缘带；玻璃本体只保留 {@link #buildPanel} 一层，
+     * 既符合 Qz 的层次契约（BACKDROP 只在面板层），也顺带减少每帧 backdrop 批次。</p>
+     */
+    private static void glassifySurfaceOnly(SceneNode node,
+                                            com.november.mcphone.client.enhance.PhoneGlass.Role role) {
+        if (node == null) return;
+        node.setBackgroundColor(glassSurface(role));
     }
 
     private static final float BASE_PANEL_HEIGHT = 0.62f;
@@ -163,7 +231,33 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     private SceneNode panel;
     private SceneNode contentSlot;
     private SceneNode homeBar;
+
+    /**
+     * 导航栏三个整格节点（上游 NAV_ORDER = {BACK, HOME, TASKS} 的同一顺序）。
+     *
+     * <p>每次整壳重建都会重新赋值（buildNavigationBar 里新建三个）；不是 static：
+     * 全屏与常显 HUD 是两个独立实例，字段必须跟实例走。</p>
+     */
+    private SceneNode[] navKeys;
+
     private MountHandle pageMount;
+    /**
+     * 外壳挂载句柄（{@code runtime.mount(root, …)} 的产物），整壳重建时先 dispose。
+     *
+     * <p><b>为什么必须有它</b>：{@link #root} 是<b>复用</b>对象（构造期只建一次，且
+     * {@code PhoneHud} 只在工厂里取一次 {@code ui.hudRoot()}，见 {@code PhoneHud.java:316}），
+     * 而 Qz 的 {@code SceneNode.appendChild} <b>只 add、不替换也不清理</b>
+     * （已用随包发行的 {@code libs/qz_uilib-dev.jar} 字节码核对：{@code appendChild} 只有
+     * {@code children.add} + 赋 parent，没有 remove）。所以「把新 panel 追加到旧 root 上」
+     * 会让 root 下越积越多块等高 panel：每块各建一条状态栏（CLOCK/DEVICE_NAME 各画一遍 =
+     * 双状态栏），而当前页经 {@code swapPage} 挂进<b>新</b> panel 的 contentSlot（屏外那块），
+     * 屏上那块旧 panel 的槽已被 {@code pageMount.dispose()} 摘空 = 界面变空。</p>
+     *
+     * <p>走 mount 契约后，重建 = 先 {@code dispose()}（其 onCleanup 调
+     * {@code root.removeChild(旧 panel)}）再挂新壳：root 的子节点恒为 1 块 panel，
+     * 且建壳期的 bind/on 都归属外壳子 Owner，随旧壳一并退订。</p>
+     */
+    private MountHandle shellMount;
     private String currentPageId;
     private int panelW;
     private int panelH;
@@ -370,52 +464,113 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         root.setCrossAxisAlign(CrossAxisAlign.CENTER);
         root.setMainAxisAlign(MainAxisAlign.CENTER);
 
-        // 整壳重建（不依赖任何「清理子节点」的隐藏语义）：新建面板 + 新建状态栏/内容槽/导航条
-        // 并挂到新 root。宿主每帧经 getRoot() 取树（AbstractSceneHostWidget.java:117），
-        // 换 root 即为原子替换。
+        // 建壳：root 在构造期只建一次、身份永久保持，外壳经 runtime.mount 挂到它下面。
+        // 宿主每帧经 getRoot() 取树（AbstractSceneHostWidget.java:117）；常显 HUD 也只在工厂里
+        // 取一次这个 root（PhoneHud.java:316 box.appendChild(ui.hudRoot())）⇒ 绝不能换 root 对象。
         rebuildShellTree();
     }
 
     /**
      * 重建整棵外壳树（新建面板 + 状态栏 + 内容槽 + 导航条并挂到 {@link #root}）。
      *
-     * <p>不做「就地清子节点」：Qz 的 {@code SceneNode} 不提供 disposeChildren，
-     * 而挂载/绑定句柄都挂在 runtime 上；整树替换是唯一不需要猜清理语义的做法
-     * （旧树随新 root 一起被丢弃，不再被 pipeline 遍历/绘制）。</p>
+     * <p><b>先 dispose 旧壳再 mount 新壳</b>（不能直接 {@code root.appendChild(panel)}）：
+     * {@link #root} 是复用对象，而 Qz 的 {@code SceneNode.appendChild} 只 add 不替换
+     * （jar 字节码已核对）⇒ 直接追加会让 root 下累积多块等高 panel —— 每块各建一条状态栏
+     * （同一 CLOCK/DEVICE_NAME 画两遍 = 双状态栏），而 {@code swapPage} 把当前页挂进
+     * <b>新</b> panel 的 contentSlot（屏外那块），屏上旧 panel 的槽已被摘空 = 界面变空。</p>
+     *
+     * <p>走 Qz 的挂载契约 {@link SceneRuntime#mount}：builder 在子 Owner 内执行、产物 append 到
+     * parent，并登记 {@code onCleanup → parent.removeChild(旧 panel)}（jar 字节码核对：
+     * {@code SceneRuntime.lambda$mount$3}）。于是 root 的子节点恒为 1 块 panel，<b>root 对象身份
+     * 不变</b> ⇒ {@code PhoneHud} 的 {@code hudRoot()} 引用继续有效；建壳期的 3 个 bind
+     * （WALLPAPER / CLOCK / DEVICE_NAME）也归属外壳子 Owner，随旧壳一起退订（旧写法它们落在
+     * rootOwner，每次重建泄漏 3 个 effect，直到关屏才回收）。</p>
      *
      * <p>公开给常显 HUD（{@code PhoneHud}）：改玻璃档/开关/强度后 HUD 用的
      * {@code HudPhoneUi} 实例也要整壳+当前页重建（review F10）。</p>
      */
     public void rebuildShellTree() {
+        if (shellMount != null) {
+            shellMount.dispose();          // 旧壳出树（root.removeChild）+ 旧壳作用域 effect/事件退订
+            shellMount = null;
+        }
+        shellMount = runtime.mount(root, this::buildShellContent);
+    }
+
+    /** 外壳内容构建（在 mount 的子 Owner 内执行一次）：返回 root 的唯一子节点 panel。 */
+    private SceneNode buildShellContent() {
         buildPanel();
-        root.appendChild(panel);
         buildStatusBar();
         buildContentSlot();
         buildNavigationBar();
+        return panel;
     }
 
+    // 上游（november521/mcphone @ tag v1.10.2，只读参考 clone <upstream-mcphone>）：
+    //   PhoneChassis.java:168-185 drawStatusBar 的注释就是「画顶部状态栏：左侧信号、右侧时钟」：
+    //     :182  int tx = phoneLeft + metrics.screenW() - 6 - font.width(time);
+    //     :183  g.drawString(font, time, tx, phoneTop + 1, FONT_COLOR_STATUS, true);            ← 时间右对齐
+    //     :184  g.drawString(font, "●●●●", phoneLeft + 4, phoneTop + 1, FONT_COLOR_STATUS, true); ← 信号在左
+    //   PhoneTheme.java:60   FONT_COLOR_STATUS = 0xFFFFFFFF（白）
+    //   PhoneTheme.java:229  STATUS_BAR_HEIGHT = 10（高矮由字号定，不随设备变）
+    // 上游那串信号逐字节核对 = U+25CF × 4（hexdump 出 e2 97 8f 重复四次），
+    // 不是别的字符；我们照样用字符串实现（Qz 4.10.0 的渲染出口没有画图形/矩阵块的能力，
+    // 只有 fillRect / drawSurface / drawBorder / drawImage / drawText，已 javap 核对）。
+    // 我们的面板宽是动态的（panelW 260–900），所以上游那两个绝对内缩量
+    // 按 guiScale = panelW / 120 等比映射（与主屏 4 列同一口径，见 buildHomeGrid）；
+    // 纵向上游没有量（只有 phoneTop + 1），保持原状。
+
+    /** 状态栏左端的信号字符：上游 PhoneChassis.java:184 原文（U+25CF × 4）。 */
+    private static final String STATUS_SIGNAL = "\u25CF\u25CF\u25CF\u25CF";
+
+    /** 信号块距屏左 4 GUI（上游 PhoneChassis.java:184 的 {@code phoneLeft + 4}）。 */
+    private static final int STATUS_SIGNAL_PAD_LEFT_GUI = 4;
+
+    /** 时钟右沿距屏右 6 GUI（上游 PhoneChassis.java:182 的 {@code phoneLeft + screenW - 6}）。 */
+    private static final int STATUS_CLOCK_PAD_RIGHT_GUI = 6;
+
+    /** 状态栏三个孩子之间的间距：我们自己的量（上游是绝对定位，没有这一项）。 */
+    private static final int STATUS_GAP = 8;
+
+    /** 时钟宽度预算的样本：形状与 TimeUtil.worldClock() 的 "%02d:%02d" 同形。 */
+    private static final String STATUS_CLOCK_SAMPLE = "88:88";
+
     private void buildStatusBar() {
+        final double guiScale = panelW / UPSTREAM_SCREEN_W_GUI;
+        // 右内缩里要扣掉 spacer 与时钟之间那个 gap，使时钟右沿距面板右沿恰为 6 GUI
+        // （等价上游 tx = phoneLeft + screenW - 6 - font.width(time)）。
+        final int padLeft = Math.max(2, (int) Math.round(STATUS_SIGNAL_PAD_LEFT_GUI * guiScale));
+        final int padRight = Math.max(2,
+            (int) Math.round(STATUS_CLOCK_PAD_RIGHT_GUI * guiScale) - STATUS_GAP);
+
         SceneNode statusBar = SceneNode.row();
         statusBar.setFillParentWidth(true);
-        statusBar.setPadding(12, 12, 12, 8);
-        statusBar.setGap(8);
+        // Qz 的 setPadding 四参重载顺序为 (top, right, bottom, left)
+        // （SceneNode.java:1571 逐行赋值）；改动前为 (12, 12, 12, 8)。
+        statusBar.setPadding(12, padRight, 12, padLeft);
+        statusBar.setGap(STATUS_GAP);
         statusBar.setHitTestable(false);
-        // 状态栏 = DARK_ULTRA_THIN / blur 6 / lens 0.3，玻璃档底色 0x23（F3 修正后：原 0x25 的
-        // 合成 T=0x46 比裁定 0x40 深 5/255；禁纯黑，§5.5）。
-        glassify(statusBar, com.november.mcphone.client.enhance.PhoneGlass.Role.STATUS);
-        SceneNode time = new SceneNode();
-        time.setText(CLOCK.get());
-        time.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
-        time.setFontSize(fs(16));
-        time.setHitTestable(false);
-        runtime.bindText(time, CLOCK);
-        statusBar.appendChild(time);
+        // 状态栏 = DARK_ULTRA_THIN 档底色 0x23（F3 修正后：原 0x25 的合成 T=0x46 比裁定 0x40
+        // 深 5/255；禁纯黑，§5.5）。**不挂 backdrop**：状态栏横跨整块面板，挂上去会把壁纸顶边整条盖掉。
+        glassifySurfaceOnly(statusBar, com.november.mcphone.client.enhance.PhoneGlass.Role.STATUS);
         // 高度先验（Qz 布局求解器要求 grow 的兄弟可先验，否则 contentSlot 高度解耦失败=主屏空白）。
         statusBar.setPreferredHeight(measurer.lineHeight(fs(16)) + 20);
-        SceneNode spacer = SceneNode.column();
-        spacer.setFlexGrow(1);
-        spacer.setHitTestable(false);
-        statusBar.appendChild(spacer);
+
+        // ---- 左 1：信号块（上游字符形式，逐字照抄；我们没有信号贴图资源，用同形态文本占位）----
+        SceneNode signal = new SceneNode();
+        signal.setText(STATUS_SIGNAL);
+        // 上游用固定白 FONT_COLOR_STATUS（底是固定的 COLOR_SCRIM 压暗层）；我们的状态栏取色
+        // 走「字体颜色」预设（PhoneTheme 六套），故沿用既有取色口径，不钉死白色。
+        signal.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
+        signal.setFontSize(fs(16));
+        signal.setHitTestable(false);
+        statusBar.appendChild(signal);
+        final int signalW = measurer.measureWidth(STATUS_SIGNAL, fs(16));
+
+        // ---- 左 2：设备名（我们的增量：上游状态栏只有信号 + 时间）----
+        // 上游的设备名只是设置页里的一行值（SettingsList），状态栏上不出现；
+        // 我们保留它、放在信号块右侧（紧挨左端），右上角留给时钟独占
+        // —— 这样「右端只有时间」与上游一致。
         String dev = ItemPhone.getDeviceName(phone);
         DEVICE_NAME.set(dev == null || dev.isEmpty()
             ? StatCollector.translateToLocal("label.mcphone.default_device") : dev);
@@ -423,10 +578,31 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         devName.setText(DEVICE_NAME.get());
         devName.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         devName.setFontSize(fs(14));
-        devName.setMaxTextWidth(panelW - 90);
+        // 宽度预算 = 面板宽 - 两端内缩 - 信号 - 时钟 - 三个 gap
+        // （等价上游现算 font.width(time)，只是改动前写死的 panelW - 90）；
+        // 不够就由 setMaxTextWidth 截断，时钟永远不会被挤出屏外。
+        final int timeW = measurer.measureWidth(STATUS_CLOCK_SAMPLE, fs(16));
+        devName.setMaxTextWidth(Math.max(0,
+            panelW - padLeft - padRight - signalW - timeW - 3 * STATUS_GAP));
         devName.setHitTestable(false);
         runtime.bindText(devName, DEVICE_NAME);
         statusBar.appendChild(devName);
+
+        // ---- 弹性空隙：把时钟推到右端（等价上游 tx = phoneLeft + screenW - 6 - width(time)）----
+        SceneNode spacer = SceneNode.column();
+        spacer.setFlexGrow(1);
+        spacer.setHitTestable(false);
+        statusBar.appendChild(spacer);
+
+        // ---- 右：时钟（上游 PhoneChassis.java:183 的位置；改动前它在左端）----
+        SceneNode time = new SceneNode();
+        time.setText(CLOCK.get());
+        time.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
+        time.setFontSize(fs(16));
+        time.setHitTestable(false);
+        runtime.bindText(time, CLOCK);
+        statusBar.appendChild(time);
+
         panel.appendChild(statusBar);
     }
 
@@ -436,25 +612,172 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         // 高度用显式先验而非 flexGrow：grow 求解器在内容型兄弟旁会早退（间歇性主屏空白/不可滚动的根因）。
         contentSlot.setPreferredHeight(contentHeight());
         contentSlot.setClipChildren(true);
-        // 内容底板 = DARK_THIN / blur 8 / lens 0.35；旧 0x900E1116（56%）会压暗玻璃且由
-        // 材质 tint（≈15% 黑）+ 玻璃态底色 + 深色文字共同承担"任何壁纸下可读"的职责。
-        glassify(contentSlot, com.november.mcphone.client.enhance.PhoneGlass.Role.PAGE);
+        // 内容底板 = DARK_THIN 档底色（旧 0x900E1116/56% 会压暗玻璃）。**不挂 backdrop**：
+        // 内容槽占面板最大面积，挂上去等于把壁纸整块盖掉（换壁纸看不出变化的直接原因）。
+        glassifySurfaceOnly(contentSlot, com.november.mcphone.client.enhance.PhoneGlass.Role.PAGE);
         panel.appendChild(contentSlot);
     }
 
+    // ===================== 底部导航栏三键（版式抄上游 v1.10.2） =====================
+    // 上游（november521/mcphone @ tag v1.10.2，只读参考 clone <upstream-mcphone>）：
+    //   PhoneChassis.java:208   NAV_GLYPHS = {"◁", "○", "□"}
+    //   PhoneChassis.java:205   NAV_ORDER  = {BACK, HOME, TASKS}（左=返回 / 中=主屏 / 右=任务）
+    //   PhoneChassis.java:255-298 drawNavKeys：三键沿导航条长边等分，字符版居中画，
+    //                             贴图版按【设计尺寸 NAV_ICON_WIDTH×NAV_BAR_HEIGHT】画、不撑满格子。
+    //   NavBarLayout.java:49-61 cellFrom/cellTo = span/cells*i（等分，余数归最后一格）
+    //   PhoneTheme.java:238     NAV_BAR_HEIGHT  = 14
+    //   PhoneTheme.java:248     NAV_ICON_WIDTH  = 40（120 屏宽 / 3，一格正好 40×14）
+    //   PhoneTheme.java:63      FONT_COLOR_NAV       = 0xFF888888（中灰）
+    //   PhoneTheme.java:66      FONT_COLOR_NAV_HOVER = 0xFFFFFFFF
+    //   PhoneTheme.java:115     COLOR_ROW_HOVER      = 0x33FFFFFF（悬停垫在整格下面）
+    // 我们的面板宽是动态的（panelW ≈ 260 起），上游是固定 120 GUI，所以“一格 40 GUI”这种
+    // 绝对宽度在这里没有意义：能照搬的是【等分】这条结构规则（每键 span/3）与【设计尺寸
+    // 不撑满格子】这条绘制规则。字号走面板无关量 NAV_GLYPH_SIZE_GUI × fs(16)，免得面板
+    // 一宽字号就跟着膨胀。
+
+    /** 导航键字符（与上游 NAV_GLYPHS 逐字相同：空心左三角 / 空心圆 / 空心方框）。 */
+    private static final String[] NAV_GLYPHS = {"\u25C1", "\u25CB", "\u25A1"};
+
+    /**
+     * 导航键字形相对 {@code fs(16)} 的比例。
+     *
+     * <p>上游一格是 40×14，图标画 8 GUI 高（{r2_shots.md §3.2 实测「图标高度约 32px
+     * = 8 GUI」）⇒ 8/14 ≈ 0.57。取 0.9 是因为我们的字形本身比格子小：AWT 实测该字号下三个
+     * 字符的 ink 高只有 0.75 em（33px 字号 → 25.2px ink），0.9 × fs(16)=16 时 ink 高约 11px，落在
+     * 12–14px 的格子里正合适。</p>
+     */
+    private static final float NAV_GLYPH_SIZE_GUI = 0.9f;
+
+    /** 导航键常态字形色 = 上游 FONT_COLOR_NAV（0xFF888888）。 */
+    private static final int NAV_GLYPH_NORMAL = 0xFF888888;
+
+    /** 导航键悬停时的字形色 = 上游 FONT_COLOR_NAV_HOVER（0xFFFFFFFF）。 */
+    private static final int NAV_GLYPH_HOVER = 0xFFFFFFFF;
+
+    /** 导航键悬停垫色 = 上游 COLOR_ROW_HOVER（0x33FFFFFF）。 */
+    private static final int NAV_KEY_HOVER_BG = 0x33FFFFFF;
+
+    /** 返回键在根页（主屏）上的不透明度：等效上游「没有上一层可回」的禁用观感。 */
+    private static final float NAV_BACK_DISABLED_OPACITY = 0.35f;
+
+    /** 导航键字形字号（面板无关，只随全局字体缩放；理由见 NAV_GLYPH_SIZE_GUI）。 */
+    private static int navGlyphFontSize() {
+        return Math.max(10, Math.round(fs(16) * NAV_GLYPH_SIZE_GUI));
+    }
+
+    /**
+     * 底部导航栏：<b>三个等宽键</b> ◁ ○ □（版式抄上游 v1.10.2）。
+     *
+     * <p>三个键沿条长边三等分（上游 NavBarLayout.cellFrom/cellTo）：中间那个吃掉除不尽
+     * 的余数，保证“画在哪儿”与“点得到哪儿”完全同源 —— 这里用 flexGrow(1) 表达同一件事，
+     * 布局求解器给出的格子就是命中测试用的格子，不存在看得见点不到的分歧。</p>
+     *
+     * <p><b>玻璃保留</b>：整条照旧走 {@link #glassifySurfaceOnly}（STATUS 档底色、不挂 backdrop），
+     * 本轮一个字都没动玻璃语义（上游那条是纯实心 COLOR_NAV_BAR，用户明确要求保留我们的玻璃）。</p>
+     */
     private void buildNavigationBar() {
         homeBar = SceneNode.row();
         homeBar.setFillParentWidth(true);
         homeBar.setCrossAxisAlign(CrossAxisAlign.CENTER);
         homeBar.setMainAxisAlign(MainAxisAlign.CENTER);
-        homeBar.setPadding(6, 6, 6, 6);
-        // 导航条 = 条状小面，同状态栏档（DARK_ULTRA_THIN，缘带弱，不抢主面板玻璃）。
-        glassify(homeBar, com.november.mcphone.client.enhance.PhoneGlass.Role.STATUS);
-        // 高度先验：按钮行高 + 上下 padding + 按钮内边距（与 playground navBar 同口径）。
-        homeBar.setPreferredHeight(measurer.lineHeight(fs(16)) + 12
-            + 2 * club.heiqi.uilib.ui.scene.paint.SceneChromeTokens.PAD_LG);
-        mountButton(homeBar, "⌂", this::backHome);
+        // 三键等宽撑满整条：去掉上下左右 padding（上游三键各占屏幕宽的 1/3，边缘没有内缩）。
+        homeBar.setPadding(0, 0, 0, 0);
+        homeBar.setGap(0);
+        // 导航条 = 条状小面，同状态栏档底色（DARK_ULTRA_THIN）。**不挂 backdrop**（同状态栏：
+        // 它横跨面板底边，挂上去会盖掉壁纸下沿）。
+        glassifySurfaceOnly(homeBar, com.november.mcphone.client.enhance.PhoneGlass.Role.STATUS);
+        // 高度先验：字形行高 + 上下各 6（与旧口径同量级；上游 NAV_BAR_HEIGHT=14 是固定 GUI
+        // 高，我们这里由字号定高，面板尺寸一变条跟着变，正是 PhoneTheme 注释里“条的高矮
+        // 由字号定”的同一条理由）。
+        homeBar.setPreferredHeight(measurer.lineHeight(navGlyphFontSize()) + 12);
+        // 上游 NAV_ORDER = {BACK, HOME, TASKS}，顺序不能换（左=返回、中=主屏、右=任务）。
+        navKeys = new SceneNode[NAV_GLYPHS.length];
+        for (int i = 0; i < NAV_GLYPHS.length; i++) {
+            navKeys[i] = mountNavKey(homeBar, i);
+        }
         panel.appendChild(homeBar);
+        refreshNavKeyStates();
+    }
+
+    /**
+     * 挂第 {@code keyIndex} 个导航键（0=◁ 返回 / 1=○ 主屏 / 2=□ 任务），返回整格节点。
+     *
+     * <p>字形用字符而不是自绘：Qz 4.10.0 的渲染出口 UiRenderBackend 只有
+     * {@code fillRect / drawSurface / drawBorder / drawImage / drawText}，<b>没有</b>画线/路径/三角形/圆弧
+     * 的能力（javap qz_uilib-4.10.0.jar 核对），所以空心 ◁○□ 只能走字形（上游也是字形）。</p>
+     */
+    private SceneNode mountNavKey(SceneNode bar, int keyIndex) {
+        final int index = keyIndex;
+        SceneNode key = SceneNode.row();
+        key.setFlexGrow(1);
+        key.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        key.setMainAxisAlign(MainAxisAlign.CENTER);
+        key.setBackgroundColor(0x00000000);
+
+        SceneNode glyph = new SceneNode();
+        glyph.setText(NAV_GLYPHS[index]);
+        glyph.setTextColor(NAV_GLYPH_NORMAL);
+        glyph.setFontSize(navGlyphFontSize());
+        glyph.setHitTestable(false);
+        key.appendChild(glyph);
+
+        // 悬停：整格垫 COLOR_ROW_HOVER + 字形提亮到 FONT_COLOR_NAV_HOVER。
+        // interactionState 的 hovered() 是 Qz 4.10.0 的公开信号（SceneInteractionState.java:51）；
+        // bindComputed 在它读到的信号变化时重新求值（SceneRuntime.java:583）。
+        var interaction = runtime.interactionState(key);
+        runtime.bindComputed(
+            () -> Boolean.TRUE.equals(interaction.hovered().get()) ? NAV_KEY_HOVER_BG : 0x00000000,
+            key::setBackgroundColor);
+        runtime.bindComputed(
+            () -> Boolean.TRUE.equals(interaction.hovered().get())
+                ? NAV_GLYPH_HOVER : NAV_GLYPH_NORMAL,
+            glyph::setTextColor);
+        // 回调延迟到下一帧开头：与图标点击（{@link #activate} 里的 post）同一口径，
+        // 避开 Qz 输入路由迭代中改树导致的 ConcurrentModificationException（踩坑 #3）。
+        runtime.on(key, SceneEventType.CLICK, (event, ctx) -> PhoneUi.postAction(() -> activateNavKey(index)));
+        bar.appendChild(key);
+        return key;
+    }
+
+    /**
+     * 导航键行为映射（上游 NavButton 三语义 → 我们现有的等价行为）。
+     *
+     * <ul>
+     *   <li><b>◁ BACK</b>：有 App 页开着 ⇒ {@link #backHome()}（返回主屏）；已在主屏 ⇒
+     *       {@link #closePhone()}（= 上游 BACK 的“退回上一层”，主屏的上一层就是收起手机）。</li>
+     *   <li><b>○ HOME</b>：{@link #backHome()}，与上游 NavButton.HOME 逐字对应。</li>
+     *   <li><b>□ TASKS</b>：上游 v1.10.2 里 NavButton.TASKS 的枚举注释就写着「多任务，<b>暂未实现</b>」
+     *       （PhoneChassis.java:197），点击不做事。我们同样保留为占位键（只做悬停反馈），不接任何行为
+     *       —— 版式与上游一致，也不会凭空发明语义。</li>
+     * </ul>
+     *
+     * <p>三路都经 {@link #postAction} 延迟（runtime 的 CLICK 回调转成 post），与 {@link #activate}
+     * 同一口径：输入分发期间改树会让 Qz 路由 CME（踩坑 #3）。</p>
+     */
+    private void activateNavKey(int keyIndex) {
+        switch (keyIndex) {
+            case 0:
+                if (isHome()) {
+                    closePhone();
+                } else {
+                    backHome();
+                }
+                return;
+            case 1:
+                backHome();
+                return;
+            default:
+                // 上游 TASKS 未实现，这里同样什么都不做（键仍然画、仍然有悬停反馈）。
+                return;
+        }
+    }
+
+    /** 按“当前在不在主屏”刷新返回键的可用观感（主屏上压暗，等效上游“没有上一层”）。 */
+    private void refreshNavKeyStates() {
+        if (navKeys == null || navKeys.length == 0) return;
+        SceneNode back = navKeys[0];
+        if (back == null) return;
+        back.setOpacity(isHome() ? NAV_BACK_DISABLED_OPACITY : 1.0f);
     }
 
     /**
@@ -528,46 +851,164 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         if (page != null) {
             pageMount = runtime.mount(contentSlot, () -> page);
         }
-        homeBar.setOpacity(currentPageId == null ? 0.35f : 1.0f);
+        // 回到主屏时把返回键压暗（等效上游“没有上一层”），进 App 时恢复。
+        //
+        // 【为什么去掉了旧的 homeBar.setOpacity(0.35f/1.0f)】上游导航条在主屏
+        // 与 App 页上是同一个不透明度（PhoneChassis.drawNavBar 里没有任何整条 opacity），
+        // 只有「当前这一键」有状态。而且旧值会和返回键自己的压暗相乘（0.35² ≈ 0.12，
+        // 三键里左边那个几乎看不见）—— 三键布局下这个组合是错的。
+        refreshNavKeyStates();
     }
 
+    // ===================== 主屏网格尺度（版式抄上游 v1.10.2） =====================
+    // 上游（november521/mcphone @ tag v1.10.2，只读参考 clone <upstream-mcphone>）：
+    //   PhoneTheme.java:251  APP_ICON_SIZE        = 20
+    //   PhoneTheme.java:254  APP_GRID_SPACING_X   = 8
+    //   PhoneTheme.java:257  APP_GRID_PADDING_TOP = 6
+    //   PhoneTheme.java:266  APP_COLUMNS_MAX      = 8（手机 120 宽算出正好 4 列）
+    //   PhoneTheme.java:269  APP_ROWS            = 5
+    //   PhoneTheme.java:272  APP_NAME_SCALE      = 0.6f
+    //   PhoneTheme.java:275  PAGE_DOTS_HEIGHT    = 8
+    //   HomeLayout.java:61   gridInset = (available - (cells*cellSize - spacing)) / 2（整排居中）
+    //   HomeGrid.java:431    appCellWidth  = APP_ICON_SIZE + APP_GRID_SPACING_X  = 28
+    //   HomeGrid.java:436    appCellHeight = APP_ICON_SIZE + (int)(lineHeight*APP_NAME_SCALE) + 4
+    //   HomeGrid.java:394    renderPageDots: pages <= 1 直接 return（单页不画页码点）
+    // 量测结论（_r2_shots.md §3.4，换算系数 s = 4.0 px/GUI）：
+    //   列步距 112px = 28 GUI（= 20 + 8）、行步距 116px = 29 GUI（= 20 + 5.4 + 4）、
+    //   首列距屏左 32px = 8 GUI（等于上游 gridInset 在 ±120 屏上的值）。
+    //
+    // 【为什么不能直接把 20 / 28 / 29 / 8 当场景像素用】
+    // 我们的面板是动态的：1080p 、UI 100% 时 panelH = 1080*0.62 = 670，
+    // panelW = 670*0.56 = 375（PhoneUi.applyPanelSize）；图标盒真正用的是渲染尺寸（本例实测
+    // native 1920x1080），直接用 20px 图标在 375 宽的面板上只占 5%，与上游那种
+    // “图标占屏宽 1/6”的版式完全不同。所以这里把上游布局对面板宽归一化：
+    //   guiScale = panelW / 120.0        ⇐ 120 = 上游屏幕可绘制区宽（GUI）
+    //   APP_ICON_SIZE    × guiScale = 20  GUI → 实际像素
+    //   APP_GRID_STEP_X  × guiScale = 28  GUI
+    //   APP_GRID_STEP_Y  × guiScale = 29  GUI
+    //   APP_GRID_PADDING_LEFT × guiScale = 8 GUI
+    // 这样「4 列、列步距 28、行步距 29、首列距屏左 8」四项比例全部逐字跟上游，而绝对值随面板走。
+
+    /** 上游屏幕可绘制区宽（GUI）：_r2_shots.md §3.1 实测 120×190。 */
+    private static final double UPSTREAM_SCREEN_W_GUI = 120.0;
+
+    /** App 图标边长（GUI，上游 APP_ICON_SIZE = 20）。 */
+    private static final int APP_ICON_SIZE_GUI = 20;
+
+    /** 图标列步距（GUI，上游 APP_ICON_SIZE + APP_GRID_SPACING_X = 28）。 */
+    private static final int APP_GRID_STEP_X_GUI = 28;
+
+    /** 图标行步距（GUI，上游实测 116px = 29）。 */
+    private static final int APP_GRID_STEP_Y_GUI = 29;
+
+    /** 单页最多几行（上游 APP_ROWS = 5）。 */
+    private static final int APP_ROWS_MAX = 5;
+
+    /** 上游主屏网格左边距（GUI）：_r2_shots.md §3.4 实测 32px = 8。 */
+    private static final int APP_GRID_PAD_LEFT_GUI = 8;
+
+    /**
+     * 上游主屏网格上边距（GUI）：{@code PhoneTheme.APP_GRID_PADDING_TOP = 6}
+     * （PhoneTheme.java:257），_r2_shots.md §3.4 实测「第一行顶起点距 statusH 下沿 ≈ 24px = 6 GUI」。
+     * 上游 HomeGrid.java:86 把它算在【状态栏下沿】上：{@code gridStartY = phoneTop + STATUS_BAR_HEIGHT + APP_GRID_PADDING_TOP}。
+     */
+    private static final int APP_GRID_PADDING_TOP_GUI = 6;
+
+    /** 主屏图标与名字的间距（上游 HomeGrid.java:438 的那个 +4）。 */
+    private static final int APP_LABEL_GAP = 4;
+
+    /**
+     * 图标盒圆角除数：{@code box / 8}（改动前 {@code box / 3}）。
+     * 上游图标无自绘圆角（贴图自带透明角，IPhoneApp.java:42-47），
+     * 这里是玻璃风格下的收敛值；最小 2px 保证小面板上不变成直角。
+     */
+    private static final int ICON_BOX_RADIUS_DIVISOR = 8;
+
+    /**
+     * 主屏网格：<b>4 列</b>、图标 <b>20 GUI</b>、列步距 <b>28 GUI</b>、行步距 <b>29 GUI</b>、
+     * 整排居中。相对上游只改了一件事：尺寸由固定 GUI 改成按面板宽归一化
+     * （理由见上方常量段）。</p>
+     *
+     * <p><b>不回归</b>：拖拽排序、点击打开（UP 现算落点 + 同格补发激活）、滚动
+     * （SceneScrolls.attach）全部保留：单元格还是那个单元格（iconCell），只是尺寸参数变了；
+     * 拖拽命中全部建立在 SceneGeometry.absoluteBox 与手势阈值上，与宽高无关；
+     * setScrollable/SceneScrolls.attach 一行未动。</p>
+     */
     private void buildHomeGrid() {
         List<IPhoneApp> apps = orderedForHome();
+
+        // 上游布局对面板宽归一化：120 GUI 屏 → panelW 场景像素。
+        final double guiScale = panelW / UPSTREAM_SCREEN_W_GUI;
+        final int iconSize = Math.max(12, (int) Math.round(APP_ICON_SIZE_GUI * guiScale));
+        final int stepX = Math.max(iconSize + 4, (int) Math.round(APP_GRID_STEP_X_GUI * guiScale));
+        final int stepY = Math.max(iconSize + 6, (int) Math.round(APP_GRID_STEP_Y_GUI * guiScale));
+        // 上游一行几格 = HomeLayout.cellsThatFit(屏宽, 列步距, 上限)；
+        // 手机 120 宽 / 28 = 4（上游 PhoneTheme.java:260 注释“手机 120 宽正好 4 个”）。
+        final int perRow = 4;
+        final int maxRows = APP_ROWS_MAX;
+
         SceneNode grid = SceneNode.column();
         grid.setFillParentWidth(true);
-        grid.setPadding(16);
-        grid.setGap(16);
+        // 上游 gridInset = (available - (cells*step - spacing)) / 2（整排居中）；在 120 屏上
+        // 算出正好 8（_r2_shots.md §3.4 首列 32px = 8 GUI）。这里当作网格容器的
+        // 左右内边距，四列自然就在剩下的宽度里居中。
+        // 上边距 = 左边距 + APP_GRID_PADDING_TOP（上游 HomeGrid.java:86 同口径：
+        // 图标区从状态栏下沿再下 6 GUI 开始）。我们的网格容器紧接状态栏，
+        // 所以这 6 GUI 就由容器的上内边距承担。
+        // Qz 的 setPadding 四参重载顺序已核实为 (top, right, bottom, left)
+        // （SceneNode.java:1571 逐行赋值）。
+        grid.setPadding(
+            APP_GRID_PAD_LEFT_GUI + (int) Math.round(APP_GRID_PADDING_TOP_GUI * guiScale),
+            APP_GRID_PAD_LEFT_GUI, APP_GRID_PAD_LEFT_GUI, APP_GRID_PAD_LEFT_GUI);
+        grid.setGap(0);
         grid.setScrollable(true);
         grid.setClipChildren(true);
         // 滚轮必须显式 attach（setScrollable 只声明可滚动；踩坑 #2）。
         club.heiqi.uilib.ui.scene.runtime.SceneScrolls.attach(runtime, grid);
 
-        // 主屏图标格底衬：CARD 档玻璃（底色 0x5A/45% 级，远低于 90% ⇒ 不盖死玻璃）。
+        // 主屏图标格底衬：CARD 档**底色**（0x5A/45% 级，远低于 90% ⇒ 不盖死玻璃）。
+        // **不挂 backdrop**：网格铺满内容槽，挂上去同样会把壁纸盖掉（r2_F §5.2⑦）。
         // 刻意不挂到 iconBox：图标盒是 accent 实色（§9.1 总则 3），上玻璃会让小图标失去识别度；
         // 且玻璃只改 PAINT 属性（`SceneNode.setBackdrop` 与背景同属 paintProps，不参与布局度量）
         // ⇒ 不影响本页拖拽命中所依赖的几何（见 iconCell 的拖拽判据注释）。
-        glassify(grid, com.november.mcphone.client.enhance.PhoneGlass.Role.CARD);
+        glassifySurfaceOnly(grid, com.november.mcphone.client.enhance.PhoneGlass.Role.CARD);
 
         // 拖拽排序共享状态：本轮网格的单元格序（扁平，行优先）与手势状态。
         final java.util.List<SceneNode> cellNodes = new java.util.ArrayList<>();
         final java.util.List<String> cellIds = new java.util.ArrayList<>();
         final HomeDrag drag = new HomeDrag();
 
-        // 列数随面板宽度自适应：80px 单元下限 ×3 列 + 间距/内边距 ≈ 360px 起；
-        // HUD 小窗（宽可到 200）放 3 列必然横向溢出被裁，降为 2 列（极窄 1 列）。
-        int perRow = panelW >= 360 ? 3 : panelW >= 210 ? 2 : 1;
-        int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);
-        int box = Math.min(84, cellW - 8);
-        for (int i = 0; i < apps.size(); i += perRow) {
+        // 行数上限：上游 APP_ROWS = 5。上游是“算出来几行就几行，最多 5”
+        // （HomeGrid.java:458 cellsThatFit(dotsTop - gridStartY, cellH, APP_ROWS)）；我们面板矮时同样只能
+        // 放得下那么多行，多出来的靠 SceneScrolls 滚动（不丢 App）。
+        final int availH = Math.max(stepY, contentHeight() - measurer.lineHeight(fs(16)) - 20
+            - 2 * APP_GRID_PAD_LEFT_GUI);
+        final int rowsFit = Math.max(1, availH / stepY);
+        final int maxVisibleRows = Math.min(maxRows, Math.max(rowsFit, 1));
+
+        int rowIndex = 0;
+        for (int i = 0; i < apps.size(); i += perRow, rowIndex++) {
+            // 行的高 = 图标 + 图标与名字的间距 + 名字行高（上游
+            // HomeGrid.appCellHeight = APP_ICON_SIZE + (int)(lineHeight*APP_NAME_SCALE) + 4 同口径；
+            // 上游用 APP_NAME_SCALE=0.6f，我们用已有的 fs(13) 标签字号，两者字高相当）。
+            // 这里用【固定图标盒 + 真实标签行高】而不直接用 stepY：行与行之间的固定
+            // 留白已经含在 stepY 里（上游 29 = 20 + 5.4 + 4），不能再重复计一次。
+            final int labelH = measurer.lineHeight(fs(13));
+            final int rowH = Math.min(stepY,
+                iconSize + APP_LABEL_GAP + labelH);
+            // 行与行之间的间距已含在行高里（上游行步距 29 = 图标 20 + 标签
+            // + 固定留白），所以这里不再 setGap。
+            if (rowIndex >= maxVisibleRows) break;
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
             row.setMainAxisAlign(MainAxisAlign.CENTER);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
-            row.setGap(18);
-            // 固定行高先验：图标盒 + 间距 + 标签行高，避免布局求解器把单元格拉伸。
-            row.setPreferredHeight(box + 30);
+            row.setGap(Math.max(0, stepX - iconSize));
+            // 固定行高先验：避免布局求解器把单元格拉伸（与改动前同口径）。
+            row.setPreferredHeight(rowH);
             for (int j = 0; j < perRow && i + j < apps.size(); j++) {
-                row.appendChild(iconCell(apps.get(i + j), cellW, box, cellNodes, cellIds, drag));
+                // 单元宽 = 列步距（上游 HomeGrid.appCellWidth = 28）；标签宽度与拖拽命中都跟它。
+                row.appendChild(iconCell(apps.get(i + j), stepX, iconSize, cellNodes, cellIds, drag));
             }
             grid.appendChild(row);
         }
@@ -605,10 +1046,14 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         boolean armed;
         boolean dragging;
         int pressedIndex = -1;
-        int targetIndex = -1;
         float pressX;
         float pressY;
-        /** 拖拽结束后要吞掉的 CLICK 所在格子（避免拖完顺手打开了 App）。 */
+        /**
+         * 拖拽结束后要吞掉的 CLICK 所在格子（避免拖完顺手打开了 App）。
+         *
+         * <p>注意 {@code -1} 之外还有「明明没换位却也置上」的一路：见 POINTER_UP 的同格落定分支
+         * ——那里是我们自己补发点击、再由 CLICK 分支把它消费掉，保证恰好激活一次。</p>
+         */
         int suppressedClickIndex = -1;
     }
 
@@ -630,6 +1075,10 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
      *       走的是 opacity（合成级）而非玻璃，两者互不覆盖。</li>
      *   <li>玻璃底衬挂在网格容器（{@link #buildHomeGrid} 的 CARD 档），不在 iconBox 上：
      *       iconBox 是 accent 实色（{@code app.iconColor()}），"刻意保留实心"。</li>
+     *   <li><b>点击 / 拖拽的分界（风险 5b 修复后）</b>：起拖仍看 {@code ACTIVATION_THRESHOLD_PX}（10px）；
+     *       但抬手时若落点仍是按下那一格（{@link #dropIndexAt} 现算），视为<b>点击</b>并补发
+     *       {@link #activate}，而不是像旧代码那样"既不换位也不激活"。真换到别的格子才走重排，
+     *       且此时 Qz 合成的 CLICK 会被 {@code suppressedClickIndex} 吞掉 ⇒ 拖拽不会误触发打开 App。</li>
      * </ul>
      */
     private SceneNode iconCell(IPhoneApp app, int cellW, int box,
@@ -648,10 +1097,19 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         iconBox.setWidthSizing(SceneNode.WidthSizing.SHRINK);
         iconBox.setPreferredWidth(box);
         iconBox.setPreferredHeight(box);
-        iconBox.setCornerRadius(box / 3);
+        // 圆角：上游 App 图标【不画圆角也不描边】—— 图标就是贴图本身，
+        // renderIcon 只有一次贴着图标矩形的 drawTexture（上游
+        // api/client/app/IPhoneApp.java:42-47、core/client/PhoneApp.java:86-91、
+        // core/client/AppEntry.java:83-89），圆角来自贴图自带的透明角。
+        // 我们的图标盒是 accent 实色块（§9.1 总则 3「保留实心」），
+        // 故保留玻璃风格的小圆角，但由 box/3 收到 box/8（改动前 box/3）。
+        iconBox.setCornerRadius(Math.max(2, box / ICON_BOX_RADIUS_DIVISOR));
         iconBox.setBackgroundColor(app.iconColor());
-        iconBox.setBorderWidth(1);
-        iconBox.setBorderColor(0x2EFFFFFF);
+        // 描边：**去掉**（改动前 setBorderWidth(1) + setBorderColor(0x2EFFFFFF) = 1px 白 18%）。
+        // 依据同上：上游图标没有描边。borderWidth 只进 paint
+        // （ScenePaintEngine.java:534-543），不参与布局（Qz 布局引擎不读 borderWidth）
+        // ⇒ 图标盒几何与拖拽/点击命中一字不变。
+        iconBox.setBorderWidth(0);
         iconBox.setMainAxisAlign(MainAxisAlign.CENTER);
         iconBox.setCrossAxisAlign(CrossAxisAlign.CENTER);
 
@@ -684,38 +1142,54 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             drag.armed = true;
             drag.dragging = false;
             drag.pressedIndex = index;
-            drag.targetIndex = index;
             drag.suppressedClickIndex = -1;
             drag.pressX = ctx.getRawPointerX();
             drag.pressY = ctx.getRawPointerY();
         });
         runtime.on(cell, SceneEventType.POINTER_MOVE, (event, ctx) -> {
-            if (!drag.armed || drag.pressedIndex != index) return;
-            if (!drag.dragging) {
-                float dx = ctx.getRawPointerX() - drag.pressX;
-                float dy = ctx.getRawPointerY() - drag.pressY;
-                if (dx * dx + dy * dy < HomeDrag.ACTIVATION_THRESHOLD_PX * HomeDrag.ACTIVATION_THRESHOLD_PX) {
-                    return;
-                }
-                drag.dragging = true;
-                drag.suppressedClickIndex = index;
-                cell.setOpacity(0.55f);
-                // 捕获指针：拖出格子后 MOVE/UP 仍派发到本节点（同 Qz SceneDragReorder）。
-                ctx.requestPointerCapture();
+            // 只在「已按下 + 就是本格 + 还没进入拖拽」时判定起拖；进入拖拽后 MOVE 无需再做任何事
+            //（落点统一在 POINTER_UP 现算，见该分支注释——旧代码在每次 MOVE 都跑一遍全格
+            // absoluteBox 只为维护一个抬手时可能已经过期的 targetIndex）。
+            if (!drag.armed || drag.pressedIndex != index || drag.dragging) return;
+            float dx = ctx.getRawPointerX() - drag.pressX;
+            float dy = ctx.getRawPointerY() - drag.pressY;
+            if (dx * dx + dy * dy < HomeDrag.ACTIVATION_THRESHOLD_PX * HomeDrag.ACTIVATION_THRESHOLD_PX) {
+                return;
             }
-            drag.targetIndex = dropIndexAt(ctx, cell, cellNodes);
+            drag.dragging = true;
+            drag.suppressedClickIndex = index;
+            cell.setOpacity(0.55f);
+            // 捕获指针：拖出格子后 MOVE/UP 仍派发到本节点（同 Qz SceneDragReorder）。
+            ctx.requestPointerCapture();
         });
         runtime.on(cell, SceneEventType.POINTER_UP, (event, ctx) -> {
             if (drag.dragging && drag.pressedIndex == index) {
                 cell.setOpacity(1.0f);
                 final int from = drag.pressedIndex;
-                final int to = drag.targetIndex;
-                final java.util.List<String> ids = new java.util.ArrayList<>(cellIds);
+                // 落点以【抬手时指针所在格】现算（与拖拽命中同源判据 dropIndexAt：格盒左闭右开，
+                // 几何来自 SceneGeometry.absoluteBox，与 Qz 命中测试 SceneHitTester.java:96-98 同口径），
+                // 不再沿用 MOVE 里最后一次算出的值 —— 抬手那一小段位移可能没有对应的 MOVE 事件。
+                final int to = dropIndexAt(ctx, cell, cellNodes);
                 drag.armed = false;
                 drag.dragging = false;
                 drag.pressedIndex = -1;
-                // 改树（重排+重建网格）延迟到分发结束。
-                postAction(() -> commitHomeDrag(ids, from, to));
+                if (to == from) {
+                    // 「同格落定」= 这次手势没有产生任何重排（10px 阈值抖动、拖出去又拖回原格都算）。
+                    // 旧代码在这里直接 return（commitHomeDrag 的 from==target 早退），而 Qz 仍会在 UP 后
+                    // 合成 CLICK（SceneInputRouter.java:407-431：UP 必合成、没有任何位移阈值），
+                    // 那个 CLICK 又被 suppressedClickIndex 吞掉 ⇒ 手抖超过 10px 就彻底点不开 App
+                    //（G 报告风险 5b）。这里改为【直接补发一次点击】。
+                    // 同时把 suppressedClickIndex 保持在 index：若 Qz 这次确实把 CLICK 派发到本格
+                    //（含经子节点冒泡上来），它会被 CLICK 分支吞掉 ⇒ 恰好激活一次；若没派发，该标记
+                    // 也会被下一次 POINTER_DOWN 复位（本方法上方的 POINTER_DOWN 处理器），不会误吞后续点击
+                    //（任何 CLICK 都由一次 DOWN 触发，而 DOWN 必先经过本格并复位它）。
+                    drag.suppressedClickIndex = index;
+                    activate(app, event.isShiftDown());
+                } else {
+                    final java.util.List<String> ids = new java.util.ArrayList<>(cellIds);
+                    // 改树（重排+重建网格）延迟到分发结束。
+                    postAction(() -> commitHomeDrag(ids, from, to));
+                }
             } else {
                 drag.armed = false;
             }
@@ -851,17 +1325,86 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         WALLPAPER.set(loadWallpaper());
     }
 
+    /**
+     * 选择一张壁纸（壁纸选择页调用）。
+     *
+     * <p>上游这一步是 {@code MCphoneNetwork.sendToServer(new SetWallpaperPacket(fileName))}，
+     * 服务端写玩家附件后回 {@code SyncWallpaperPacket}；本轮只做本地生效（见交付报告 §8）、
+     * 选中项落 {@code config/mcphone/wallpapers/.current}。</p>
+     *
+     * @param fileName 壁纸目录下的文件名；空串/null = 恢复默认背景
+     */
+    public static void selectWallpaper(String fileName) {
+        com.november.mcphone.client.enhance.WallpaperStore.setSelectedFileName(fileName);
+        refreshWallpaper();
+    }
+
+    /**
+     * 从壁纸目录取当前选中的图；目录里没有（还没选过）时退回旧的单文件
+     * {@code mcphone/wallpaper.png}（相册「设为壁纸」仍写那一条路径，不属本轮 inScope）。
+     */
     private static SceneImageSource loadWallpaper() {
-        File f = PhotoStore.wallpaperFile();
-        if (!f.isFile()) return null;
+        com.november.mcphone.client.enhance.WallpaperStore.Entry entry =
+            com.november.mcphone.client.enhance.WallpaperStore
+                .findEntry(com.november.mcphone.client.enhance.WallpaperStore.selectedFileName());
+        BufferedImage img = entry == null ? null : entry.image();
+        if (img == null) {
+            File f = PhotoStore.wallpaperFile();
+            if (!f.isFile()) return null;
+            try {
+                img = ImageIO.read(f);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (img == null) return null;
         try {
-            BufferedImage img = ImageIO.read(f);
-            if (img == null) return null;
-            return HostImageSource.bufferedImage(cropToPanelAspect(img),
-                "mcphone:wallpaper#" + System.nanoTime());
+            BufferedImage cropped = cropToPanelAspect(img);
+            return HostImageSource.bufferedImage(cropped,
+                com.november.mcphone.client.enhance.WallpaperStore.contentKey(entry, cropped));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 壁纸的 {@code imageKey}：<b>内容寻址</b>的稳定键（同一张裁好的图 ⇒ 同一个 key）。
+     *
+     * <p><b>为什么不能用 {@code System.nanoTime()}（旧写法）</b>：Qz 的动态位图纹理由
+     * {@code MinecraftHostImageRenderer} 按 imageKey 缓存在一个只增不减的表里
+     * （{@code Map<String,ResourceLocation> dynamicImageTextures}，put 见
+     * {@code MinecraftHostImageRenderer.java:109}）；<b>唯一</b>清理入口是 {@code close()}
+     * → {@code clearDynamicImageTextures()}（{@code :115-144}），<b>没有任何按键删除/淘汰的 API</b>。
+     * 于是 nanoTime 键 ⇒ 每换一次壁纸都新建一份 GPU 纹理（360×640×4 ≈ 0.9 MB）且在本界面存活期内
+     * 不回收（renderer 归 {@code McScreenBridge} 私有所有：建 {@code McScreenBridge.java:64}、
+     * 关 {@code :328}）。稳定键 ⇒ 重复设置同一张图（含 6 个预设反复点）直接复用已上传的纹理。</p>
+     *
+     * <p><b>为什么必须内容寻址、不能只用文件路径</b>：{@code PhotoStore.setWallpaper} 与
+     * {@code WallpaperPresets.apply} 都是<b>覆盖写同一个</b> {@code mcphone/wallpaper.png}
+     * （{@code PhotoStore.java:60-70}），路径恒定而内容会变；若 key 只含路径，Qz 会一直复用第一张图的
+     * 纹理 ⇒ 换壁纸彻底失效。故键 = 裁剪后尺寸 + 像素内容哈希：内容变 ⇒ 键变 ⇒ 重新上传（正确）；
+     * 内容同 ⇒ 键同 ⇒ 复用（省显存）。裁剪尺寸进键还覆盖了「窗口/UI 缩放改变面板比例后重设同一张图」
+     * 这一种内容会变而文件不变的情况。</p>
+     *
+     * @param image 已裁到面板比例的位图（即实际上传的那一份）
+     * @return 稳定 imageKey
+     */
+    private static String wallpaperImageKey(BufferedImage image) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        try {
+            int[] pixels = image.getRGB(0, 0, w, h, null, 0, w);
+            if (pixels != null) {
+                return "mcphone:wallpaper/" + w + "x" + h + "/"
+                    + Integer.toHexString(java.util.Arrays.hashCode(pixels));
+            }
+        } catch (Throwable ignored) {
+            // 非标准 ColorModel 等异常 ⇒ 退到「尺寸 + 文件长度/mtime」键；仍远好于 nanoTime：
+            // 覆盖写同一文件会改 mtime ⇒ 不会错误复用旧图（只是同图重复设置会各自上传一次）。
+        }
+        File f = PhotoStore.wallpaperFile();
+        long stamp = f.isFile() ? (f.length() * 31L + f.lastModified()) : 0L;
+        return "mcphone:wallpaper/" + w + "x" + h + "/" + Long.toHexString(stamp);
     }
 
     /** 中心裁剪到手机面板宽高比（约 0.56）：避免壁纸被拉伸变形（图片源按节点边界拉伸填充）。 */
