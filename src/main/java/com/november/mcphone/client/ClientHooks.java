@@ -15,7 +15,10 @@ import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * 客户端事件钩子：按键（打开手机/相机快门）、相机模式tick与HUD取景框。
+ * 客户端事件钩子：按键（打开手机/相机快门）、相机模式 tick 与 HUD 取景框。
+ *
+ * <p>常显 HUD 的渲染已迁移到 Qz 的 ClientHudService 宿主（宿主自己在 RenderGameOverlayEvent
+ * 上绘制），本类因此不再转发 HUD 渲染、也不再因为 HUD 而注册 Forge 总线。</p>
  */
 public final class ClientHooks {
 
@@ -82,8 +85,8 @@ public final class ClientHooks {
         cpw.mods.fml.common.FMLCommonHandler.instance()
             .bus()
             .register(new ClientHooks());
-        // HUD 渲染转发监听的是 RenderGameOverlayEvent（Forge 总线）。
-        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ClientHooks());
+        // 常显 HUD 渲染由 Qz ClientHudService 宿主负责（RenderGameOverlayEvent 是 Qz 的
+        // UiHudRenderListener 在处理），本类不再需要挂 Forge 总线；相机取景框仍挂。
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new CameraHandler.Overlay());
         com.november.mcphone.client.hud.PhoneHud.init();
     }
@@ -208,13 +211,5 @@ public final class ClientHooks {
             if (s != null && s.getItem() instanceof com.november.mcphone.core.ItemPhone) return s;
         }
         return null;
-    }
-
-    /** 常显 HUD 渲染转发（CameraHandler.Overlay 已画完自己那部分之后调用）。 */
-    @cpw.mods.fml.common.eventhandler.SubscribeEvent
-    public void onRenderHudPost(net.minecraftforge.client.event.RenderGameOverlayEvent.Post event) {
-        if (event.type != net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType.ALL) return;
-        com.november.mcphone.client.hud.PhoneHud.get()
-            .renderHud(Minecraft.getMinecraft(), event.partialTicks);
     }
 }

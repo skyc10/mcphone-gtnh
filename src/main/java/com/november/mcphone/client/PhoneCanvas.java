@@ -322,6 +322,87 @@ public final class PhoneCanvas {
         save(p);
     }
 
+    // ===================== 液态玻璃（Liquid Glass） =====================
+
+    /** 玻璃总开关：默认开启（用户裁定：玻璃是首选风格，旧配色直接淘汰）。 */
+    private static final String KEY_GLASS_ENABLED = "glassEnabled";
+    /** 玻璃配方档（序号即 PhoneGlass.Tier：0=AUTO 1=THIN 2=ULTRA_THIN 3=REGULAR 4=THICK）。 */
+    private static final String KEY_GLASS_TIER = "glassTier";
+    /** 液态强度全局缩放（0.0-1.0）。 */
+    private static final String KEY_GLASS_LENS = "glassLensStrength";
+
+    /** getGlassLensStrength() 的默认值 = 1.0（100%）；口径依据见 getGlassLensStrength 注释。 */
+    public static final float GLASS_LENS_DEF = 1.0F;
+
+    /**
+     * 玻璃总开关，默认 true。
+     *
+     * <p>关闭时所有玻璃入口回落为 PhoneGlass 的中性非玻璃配色（浅底 + 中深文字），
+     * 不保留旧深灰方案。读全量-改-写回，与 PhoneTheme 共用 settings.properties 且不覆盖其它键。</p>
+     */
+    public static boolean isGlassEnabled() {
+        return !"false".equalsIgnoreCase(load().getProperty(KEY_GLASS_ENABLED, "true").trim());
+    }
+
+    public static void setGlassEnabled(boolean v) {
+        Properties p = load();
+        p.setProperty(KEY_GLASS_ENABLED, Boolean.toString(v));
+        save(p);
+    }
+
+    /**
+     * 玻璃配方档，默认 0 = AUTO。
+     *
+     * <p><b>默认值依据</b>：AUTO 由 PhoneGlass 按最近一次实际渲染路径解析 —— 真渲染
+     * （path==SHADER）用默认主档 THIN（对齐 Qz 自家 DARK_THIN / blur 8 / lens 0.5 定稿，
+     * docs/qz-liquid-glass-design.md 6.2 节）；降级（固定管线 / 纯 tint）自动退到更薄的
+     * ULTRA_THIN，弱化「无 vibrancy / 边缘糊」的观感损失。默认在强机与弱机上都是
+     * 「可用即最好」，不需要玩家先做选择。</p>
+     *
+     * <p>读时 clamp（越界回落默认档）、写时规范化（先经 PhoneGlass.Tier.normalize）。</p>
+     */
+    public static com.november.mcphone.client.enhance.PhoneGlass.Tier glassTier() {
+        return com.november.mcphone.client.enhance.PhoneGlass.Tier
+            .normalize(parseInt(load().getProperty(KEY_GLASS_TIER, "0")));
+    }
+
+    public static void setGlassTier(int tierOrdinal) {
+        Properties p = load();
+        p.setProperty(KEY_GLASS_TIER,
+            Integer.toString(com.november.mcphone.client.enhance.PhoneGlass.Tier
+                .normalize(tierOrdinal).ordinal()));
+        save(p);
+    }
+
+    /**
+     * 液态强度全局缩放，默认 1.0（100%），clamp 到 [0,1]。
+     *
+     * <p><b>默认值依据</b>：PhoneGlass 各面的基础 lens 直接采用 Qz 自家定稿值
+     * （主壳 0.5 / 内容底板 0.35 / 状态栏 0.3 / 按钮 1.0，设计文档 6.2 节），
+     * 本键是对这组基准值的全局倍率 ⇒ 默认必须是 1.0（1.0 = 逐字对齐上游观感）。
+     * 0.0 等价「有玻璃但无折射缘带」，1.0 最强。</p>
+     */
+    public static float getGlassLensStrength() {
+        try {
+            float v = Float.parseFloat(load().getProperty(KEY_GLASS_LENS, "1.0").trim());
+            return Math.max(0.0F, Math.min(1.0F, v));
+        } catch (NumberFormatException e) {
+            return GLASS_LENS_DEF;
+        }
+    }
+
+    public static void setGlassLensStrength(float strength) {
+        float v = Math.max(0.0F, Math.min(1.0F, strength));
+        Properties p = load();
+        p.setProperty(KEY_GLASS_LENS, String.valueOf(v));
+        save(p);
+    }
+
+    /** 供 PhoneGlass 换算的全局倍率（= strength / 默认值；默认 1.0 ⇒ 倍率 1.0）。 */
+    public static float glassLensMultiplier() {
+        return getGlassLensStrength() / GLASS_LENS_DEF;
+    }
+
     private static int parseInt(String s) {
         try {
             return Integer.parseInt(s.trim());
