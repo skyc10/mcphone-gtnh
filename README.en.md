@@ -17,7 +17,7 @@ A working smartphone inside GTNH — take photos, browse a gallery, change wallp
 
 | Mod | Notes |
 | --- | --- |
-| [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) (4.8+) | **Required**. A modern scene UI library built for GTNH — the entire phone UI runs on it. If the library does not publish build artifacts, grab it from this project's Releases |
+| [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) (**4.9.0+**) | **Required**. A modern scene UI library built for GTNH — the entire phone UI runs on it. **Minimum version is 4.9.0**: only 4.9.0+ ships the Liquid Glass interfaces (`UiBackdrop` / `UiGlassMaterial` etc.); 4.8.x lacks them, and mcphone will fail to load with an unsatisfied dependency. If the library does not publish build artifacts, grab it from this project's Releases |
 
 **Integration**: the ME Terminal app depends on **AE2** and **ae2fc** (Ultra Wireless Terminal) — both ship with the GTNH modpack, no extra install needed. In a GTNH instance with them installed, the phone can bind by sneak + right-clicking an ME Security Station, and the ME Terminal icon opens the Ultra Wireless Terminal's full interface directly.
 

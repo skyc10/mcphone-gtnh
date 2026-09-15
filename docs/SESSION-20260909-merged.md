@@ -149,7 +149,7 @@
 7. 附属兼容红线：附属 App 永远免费且不被商店过滤（isBuiltin()==false）；api/ 目录零改动。
 8. NoteSync/ChatHistory 均分批（NoteSync 8 条/24KB 一批，读写对称 count→offset→total→条目；聊天 30 条/批 meta.text 封顶 600B）。
 9. mcphone 本体不写 Mixin：`mixins.mcphone.json` 三个数组为空（mixin 包是 qz_uilib 运行时占位）；`usesMixinDebug` 不需要开。
-10. `mcmod.info` 的 `useDependencyInformation:false` 无问题——1.7.10 下 `@Mod` 注解 `required-after:qz_uilib@[4.8,)` 才是有效声明。
+10. `mcmod.info` 的 `useDependencyInformation:false` 无问题——1.7.10 下 `@Mod` 注解 `required-after:qz_uilib@[4.9.0,)` 才是有效声明（下限后来按液态玻璃 API 从 `[4.8,)` 上移；见 docs/qz-liquid-glass-design.md §4）。
 11. gradle 形态：`compileOnly(files("libs/qz_uilib-dev.jar"))` + `runtimeOnlyNonPublishable` 是标准形态；`settings.gradle.kts` pluginManagement 的 `mavenLocal()` 是 GTNH 模板标准写法，不是残留。Daemon JVM criteria（toolchain 25）+ Jabel 已启用。
 12. 代码卫生：4 处 `System.out.println`（net/AppIntegrations.java:61,180,190、client/ClientHooks.java:91）是文档声明的刻意诊断日志，非垃圾。
 

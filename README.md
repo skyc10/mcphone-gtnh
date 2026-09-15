@@ -14,7 +14,7 @@
 
 | 模组 | 说明 |
 | --- | --- |
-| [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.8+） | **必需前置**。GTNH 专用的现代场景 UI 库，手机的整个界面都跑在它上面。仓库里不发布构建产物时，可从本项目 Release 一起下载 |
+| [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（**4.9.0+**） | **必需前置**。GTNH 专用的现代场景 UI 库，手机的整个界面都跑在它上面。**版本下限为 4.9.0**（4.9.0 起才提供液态玻璃 `UiBackdrop`/`UiGlassMaterial` 等接口；4.8.x 不含，装上会因依赖不满足导致 mcphone 加载失败）。仓库里不发布构建产物时，可从本项目 Release 一起下载 |
 
 **联动模组**：ME 终端 App 依赖 **AE2** 与 **ae2fc**（通用无线终端）——这两者 GTNH 整合包自带，无需额外安装。装了它们的 GTNH 里，手机可以潜行+右击 ME 安全站完成绑定，点图标直接打开通用无线终端的完整形态。
 

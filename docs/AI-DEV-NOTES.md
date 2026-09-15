@@ -7,7 +7,7 @@
 
 由 skyc10 借助 AI 将 november521 的原创 mod MCphone（MC 1.21.1 + NeoForge）移植并重写适配 **GTNH 2.9.0-beta-3**（MC 1.7.10 + Forge 1614，Java 17+ 运行时，lwjgl3ify + Angelica）；本仓库的 UI 层基于 Qz-UILib 全部重写。原 mod 作者为 november521，移植/重写与维护者为 skyc10。
 
-- UI 层**整体重写**在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.8+，LGPL-3.0）场景栈上：`UiSurface + McScreenBridge` 宿主模式，原生分辨率渲染。
+- UI 层**整体重写**在 [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)（4.9.0+，LGPL-3.0）场景栈上：`UiSurface + McScreenBridge` 宿主模式，原生分辨率渲染。
 - 仓库：`https://github.com/skyc10/mcphone-gtnh`（master = 干净线性历史；`dev-history` 分支 = 完整开发过程历史，含每次修复的细节）。
 - 本地工程与 Qz-UILib 源码（只读参考/自查用，**禁止修改**：[QuanhuZeYu/Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib)）的磁盘路径不写入本仓库。
 - 测试实例（PrismLauncher）：
@@ -18,7 +18,7 @@
 
 ```
 com.november.mcphone
-├── MCphone               @Mod，依赖 required-after:qz_uilib@[4.8,)
+├── MCphone               @Mod，依赖 required-after:qz_uilib@[4.9.0,)（下限=含液态玻璃的最小已发布版本；4.8.x 会让加载期直接失败，见 docs/qz-liquid-glass-design.md §4）
 ├── ClientProxy/CommonProxy  ClientProxy 负责：按键钩子、openPhoneGui、
 │                            initApps(PhoneApi.registerBuiltins)、postInitApps(loadExternalApps)
 ├── api/                  公开附属 SPI（见 docs/addon-api.md）
@@ -42,7 +42,7 @@ com.november.mcphone
 ```
 
 - 构建：`gradlew build`（GTNH convention 2.0.20，Jabel，JDK25 工具链）。产物 `build/libs/mcphone-vX.Y.Z.jar`。
-- 运行依赖：qz_uilib-4.8.0.jar（实例 mods 里）；编译依赖：`libs/qz_uilib-dev.jar`（仓库内，LGPL 允许）。
+- 运行依赖：qz_uilib-4.9.1.jar（实例 mods 里）；编译依赖：`libs/qz_uilib-dev.jar`（仓库内，官方 4.9.1-dev，LGPL 允许）。
 - 联动（零编译依赖，全反射）：AE2 rv3-GTNH、ae2fc（通用无线终端 `com.glodblock.github.common.item.ItemWirelessUltraTerminal`）、（附属用）MCEF/WebDisplays。
 
 ## 3. 踩坑清单（重要度排序，全部实测）
