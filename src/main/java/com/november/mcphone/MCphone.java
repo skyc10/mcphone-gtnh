@@ -30,7 +30,7 @@ import cpw.mods.fml.common.registry.GameRegistry;
      // （与类是否存在无关，4.4 节链条）⇒ 下限必须写 [4.9.0,)，否则装上 4.8.x 会在
      // FML 加载期直接 MissingModsException。玻璃类型的具体名字只在
      // client/enhance/PhoneGlass.java 出现（能力隔离桥约定）。
-     dependencies = "required-after:qz_uilib@[4.9.0,)")
+     dependencies = "required-after:qz_uilib@[4.10.0,)")
 public class MCphone {
 
     public static final String MODID = "mcphone";
