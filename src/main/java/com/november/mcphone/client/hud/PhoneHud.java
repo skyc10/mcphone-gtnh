@@ -5,23 +5,16 @@ import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.GL11;
 
-import club.heiqi.uilib.ui.hud.api.ClientHudService;
-import club.heiqi.uilib.ui.hud.api.HudAnchor;
-import club.heiqi.uilib.ui.hud.api.HudInsets;
-import club.heiqi.uilib.ui.hud.api.HudLayoutResolver;
-import club.heiqi.uilib.ui.hud.api.HudLayoutService;
-import club.heiqi.uilib.ui.hud.api.HudPlacement;
-import club.heiqi.uilib.ui.hud.api.HudRegistration;
-import club.heiqi.uilib.ui.hud.api.HudScaleState;
-import club.heiqi.uilib.ui.hud.api.HudSpec;
-import club.heiqi.uilib.ui.hud.api.HudToolbarService;
-import club.heiqi.uilib.ui.hud.api.HudVisibility;
-import club.heiqi.uilib.ui.scene.layout.AnchorRect;
-import club.heiqi.uilib.ui.scene.layout.LayoutBox;
+import club.heiqi.uilib.ui.host.NativeDisplaySize;
+import club.heiqi.uilib.ui.host.UiHostRenderSupport;
+import club.heiqi.uilib.ui.render.PaintContextCompositor;
+import club.heiqi.uilib.ui.render.UiMainLayerSnapshotService;
+import club.heiqi.uilib.ui.render.UiRenderContext;
+import club.heiqi.uilib.ui.runtime.UiRuntimeAdapters;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
-import club.heiqi.uilib.ui.scene.overlay.SceneAnchorResolver;
-import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
+import club.heiqi.uilib.util.GlAttribDepth;
 
 import com.november.mcphone.client.ClientHooks;
 import com.november.mcphone.client.PhoneCanvas;
@@ -34,47 +27,87 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * 常显手机 HUD：背包里有手机且无 GUI 打开时，把手机面板常驻画在游戏画面上。
  *
- * <p>渲染宿主 = Qz 通用 HUD（{@code ClientHudService.register(HudSpec, HudWindowFactory)}，
- * Qz 4.9.1 {@code client/hud/SceneHudHost}）。宿主接管了：视口与 GL 状态、四角锚定 + 安全区 +
- * 视口夹取、HUD 独立缩放（{@code HudScaleState}）、窗口外壳、以及窗口宽度收缩
- * （shell {@code WidthSizing.SHRINK} + {@code HudSpec.minWidth/maxWidth} 夹取）。
- * mcphone 只提供：内容树（{@link PhoneUi} 按目标尺寸建树）与「玩家选择的位置」（{@code PhoneCanvas}
- * 的锚点/偏移 → {@code HudLayoutService} 放置真值）。</p>
+ * <h2>为什么渲染仍归 mcphone（本轮从 Qz 通用 HUD 宿主改回来）</h2>
+ * v1.0.3-beta.3 把本 HUD 迁到 {@code ClientHudService.register(HudSpec, factory)}（Qz 4.9.1
+ * {@code client/hud/SceneHudHost}）。迁移后用户可见的三个故障都能定位到「宿主绘制」这条链上：
  *
- * <p><b>输入仍归 mcphone</b>：{@code HudWindowFactory} 的契约明写「宿主未注入输入源，窗口不接收输入」
- * （{@code SceneHudHost} 以 {@code SceneHostAssembly.assemble(measurer, null)} 装配，inputSource=null），
- * 所以拖拽 / Ctrl+滚轮缩放 / G 键开关 / 点击打开手机全部留在本类（客户端 tick）。
- * 命中判定用「宿主放置的只读镜像」（同一个公开纯函数 {@code HudLayoutResolver.resolve} /
- * {@code SceneAnchorResolver.resolveViewport} + 宿主 framePlaced 的取整），不自己另立一套锚点数学。</p>
+ * <ol>
+ *   <li><b>App 图标完全不渲染</b>：宿主唯一的 HUD 渲染桥 {@code UiHudRenderListener} 用
+ *       {@code UiRuntimeAdapters.empty()} 建渲染上下文（4.9.1 {@code UiHudRenderListener.java:123-124}，
+ *       已用随包发行的 {@code qz_uilib-4.9.1.jar} 字节码复核），于是
+ *       {@code UiRenderContext.drawHostImage()} 在 {@code hostImageRenderer == null} 时直接
+ *       {@code return}（{@code UiRenderContext.java:786-789}），ItemStack 图标同理
+ *       （{@code :807-811}）。而 mcphone 的图标格**只用** {@code HostImageSource}
+ *       （{@code PhoneUi.iconCell}：{@code HostImageSource.texture(...)} / {@code .itemIcon(...)}）；
+ *       {@code HostImageSource} 又是全 Qz 唯一的 {@code SceneImageSource} 实现，且
+ *       {@code UiRenderContext.drawImage} 只认它。⇒ 走宿主管线时，**所有**贴图/物品图标/壁纸
+ *       一律静默丢弃；面板底色、状态栏文字、导航条「⌂」是普通 paint，照常显示——
+ *       与「图标全没了、⌂ 还在」的用户现象逐条吻合。宿主侧没有任何注入适配器的入口
+ *       （{@code UiHostRenderSupport.createRenderContext} 的 adapters 参数只由 Qz 自己的监听器传），
+ *       所以「不改 Qz 就画不出图标」，只能把绘制收回 mcphone。</li>
+ *   <li><b>比例/缩放不可控</b>：宿主把倍率拆成 {@code HudScaleSetting.get() × HudScaleState.factor()}
+ *       两个因子，前者是 Qz 私有全局量（mcphone 读不到，4.9.1 里也没有任何 {@code set} 调用点），
+ *       后者由 {@code HudToolbarService.scale(id)} 惰性创建。mcphone 只能写下发的一半，
+ *       且缩放只作用在「100% 设计盒」上，实际观感与旧版 {@code panelSize()}（把缩放乘进物理面板）
+ *       不是同一套口径。收回绘制后倍率只有一个真相：{@code PhoneCanvas.hudScalePercent}。</li>
+ *   <li><b>Ctrl+滚轮无反应 / 点击拖拽不可操控</b>：宿主只画不读输入（{@code inputSource=null}），
+ *       命中盒只能靠 mcphone 自己「镜像」宿主那套
+ *       {@code resolveViewport / HudLayoutResolver.resolve / framePlaced} 数学（含 {@code ceil}、
+ *       {@code /scale} 取整），是第二事实源；镜像里还硬编码了 {@code HudInsets.NONE}
+ *       （宿主用的是 {@code registry.avoidanceInsets(...)} 的真实安全区）。
+ *       收回绘制后命中盒 = 实际绘制矩形，同一份变量算出来，不存在镜像偏差。
+ *       滚轮另外还有 API 问题：{@code Mouse.getDWheel()} 是<b>消费式</b>读（LWJGL 2.9.4 字节码：
+ *       {@code return dwheel; dwheel = 0;}），任何更早的消费者都会把它清零；本轮改用 Forge 在
+ *       {@code Mouse.next()} 循环内派发的 {@code MouseEvent}（携带每事件 {@code dwheel}）。</li>
+ * </ol>
  *
- * <p>交互：左键点击 HUD = 打开手机；拖拽 = 移动位置；Ctrl+滚轮 = 缩放；G 键 = 开关 HUD
- * （ClientHooks 注册的 keyHud）。</p>
+ * <h2>渲染契约（与全屏手机同源）</h2>
+ * <pre>
+ * design（100% 设计尺寸，logical px）= 屏高 × 0.62（夹取 320–1100）× 0.56（夹取 200–620）
+ * physical = ceil(design × hudScalePercent / 100)
+ * 绘制 = PhoneUi.render(designW, designH, context.scaled(scale), round(originX/scale), round(originY/scale))
+ * 命中盒 = (originX, originY, physicalW, physicalH) —— 与绘制同一份 origin/physical，不另算
+ * </pre>
+ * {@code UiRuntimeAdapters.minecraftDefaults()} 是图标能画出来的关键：它与全屏手机
+ * （{@code McScreenBridge} 内部同款适配器）走完全一样的宿主图片路径。
+ *
+ * <p><b>输入仍全在 mcphone 侧</b>：HUD 内容树整体关闭命中（{@link #disableHitTesting}），
+ * 避免 Qz 自身的输入路由把点击派发给 HUD 实例（那会让 HUD 悄悄跳页）；鼠标/滚轮/键盘一律
+ * 由本类的客户端 tick 与 Forge 事件处理。</p>
  */
 public final class PhoneHud {
 
-    /** HUD 注册 id（Qz 全局唯一；缩放与放置真值都按它索引）。 */
-    public static final String HUD_ID = "mcphone:phone";
-
-    /** 窗口边距（沿用旧 panelOrigin 的 24 物理像素）。 */
+    /** 窗口边距（物理像素；沿用旧 panelOrigin 的 24）。 */
     private static final int HUD_MARGIN = 24;
 
+    /** 松开时位移小于该值（物理像素）视为点击而不是拖拽。 */
+    private static final int CLICK_SLOP_PX = 4;
+
+    /** Ctrl+滚轮每格的缩放步进。 */
+    private static final int SCALE_STEP_PERCENT = 10;
+
+    /** 与 {@code PhoneCanvas.HUD_SCALE_MIN/MAX} 同口径（那边是 private，这里按同值硬编码）。 */
+    private static final int SCALE_MIN_PERCENT = 40;
+    private static final int SCALE_MAX_PERCENT = 150;
+
+    /** 与 {@code PhoneCanvas.HUD_OFFSET_LIMIT} 同口径。 */
+    private static final int OFFSET_LIMIT = 4096;
+
     /**
-     * HudSpec 的宽度口径：minWidth=0 表示用宿主默认值（{@code HudTokens.NORMAL.minWidth}），
-     * maxWidth=Integer.MAX_VALUE 表示不额外限制（最终仍会被视口夹取）。两处都必须与传给
-     * {@link HudSpec.Builder} 的值一致，{@link #hitBox} 的镜像要用同一口径。
+     * 配置内存缓存的最长有效期（毫秒）。
+     *
+     * <p>{@code PhoneCanvas.load()} 没有任何缓存（每次调用都新建 Properties + 读整文件），
+     * 而旧 HUD 每 tick 要读 6–10 次、拖拽时每 tick 还要写 2 次整文件。这里把「读」压到
+     * 每秒最多一轮（5 个键），「写」只在用户实际操作时发生。设置页改锚点/缩放后最多 1 秒
+     * 被 HUD 看到，而设置页只在 GuiScreen 打开时可用（此时 HUD 本就不显示），无用户可见延迟。</p>
      */
-    private static final int SPEC_MIN_WIDTH = 0;
-    private static final int SPEC_MAX_WIDTH = Integer.MAX_VALUE;
-    /** {@code HudTokens.NORMAL.minWidth}（包内可见性，这里按同口径硬编码）。 */
-    private static final int HOST_DEFAULT_MIN_WIDTH = 32;
+    private static final long CFG_REFRESH_MS = 1000L;
+
+    /** 逐帧诊断（{@code -Dmcphone.hud.debug=true}）：打印设计尺寸/缩放/绘制盒/指针，用于手测取证。 */
+    private static final boolean DEBUG = Boolean.getBoolean("mcphone.hud.debug");
 
     private static PhoneHud instance;
     private static boolean handlerRegistered;
-
-    /** 宿主下发的缩放下限（Qz {@code HudScaleState.MIN_PERCENT}）；PhoneCanvas 侧允许 40。 */
-    private static final int HUD_SCALE_MIN_HOST = 50;
-    /** 已就"低于宿主下限"提示过的值（0 = 未提示；同一值不重复提示，值变才再提示）。 */
-    private static int warnedLowScalePercent;
 
     public static PhoneHud get() {
         if (instance == null) instance = new PhoneHud();
@@ -82,39 +115,22 @@ public final class PhoneHud {
     }
 
     /**
-     * 玻璃设置（开关 / 档位 / 强度）变化后重建常显 HUD 的实例（review F10）。
+     * 注册时创建实例（ClientHooks.preInit）：事件监听器必须注册即存在。
      *
-     * <p>HUD 用的是自建 {@code HudPhoneUi} 实例，构造后 {@code PhoneUi.ACTIVE} 被还原为全屏实例，
-     * 故它<b>不会</b>被 {@code PhoneUi.refreshGlassShell()} 的 ACTIVE 分支重建 ⇒ 只开 HUD 时改玻璃
-     * 设置，HUD 面板会停在旧档/旧底，直到 G 键关 HUD / 切世界 / 打开 GUI 触发宿主重建。本入口补齐。</p>
-     *
-     * <p>先取出实例与 {@code hudUi} 引用，再 post；执行时若已被关掉/重建（引用变了）则跳过。
-     * 通过 {@code rebuildShellTree()} + {@code rebuildPage()} 重建（与全屏实例同一路径），
-     * 不改观感、不改默认开启，也不触碰 PhoneCanvas。</p>
+     * <p>三条线：客户端 tick（交互 + 延迟动作 flush）、Forge overlay（自绘）、Forge MouseEvent
+     * （Ctrl+滚轮；Qz 宿主迁走后滚轮不再有别的读取者）。</p>
      */
-    public static void onGlassSettingsChanged() {
-        final PhoneHud hud = instance;
-        if (hud == null) return;
-        final HudPhoneUi ui = hud.hudUi;
-        if (ui == null) return;
-        PhoneUi.postAction(() -> {
-            if (hud.hudUi != ui) return;   // 期间被关掉/重建 ⇒ 跳过
-            ui.rebuildShellTree();
-            ui.rebuildPage();
-        });
-    }
-
-    /** 注册时创建实例（ClientHooks.preInit）：事件监听器必须注册即存在。 */
     public static void init() {
         get();
-        if (!handlerRegistered) {
-            handlerRegistered = true;
-            // 踩坑 #7：FML ASM 事件监听器必须是 public 具名静态类（禁止匿名内部类）。
-            FMLCommonHandler.instance().bus().register(new TickHandler());
-        }
+        if (handlerRegistered) return;
+        handlerRegistered = true;
+        // 踩坑 #7：FML/Forge 事件监听器必须是 public 具名静态类（禁止匿名内部类）。
+        FMLCommonHandler.instance().bus().register(new TickHandler());
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new OverlayHandler());
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new MouseWheelHandler());
     }
 
-    /** 客户端 tick 交互监听器（public 具名静态类，见踩坑 #7）。 */
+    /** 客户端 tick：采样指针（物理像素）、刷配置缓存、拖拽/点击交互。 */
     public static final class TickHandler {
         @SubscribeEvent
         public void onClientTick(TickEvent.ClientTickEvent event) {
@@ -123,20 +139,64 @@ public final class PhoneHud {
         }
     }
 
-    /** 宿主注册句柄：HUD 关/世界关时 close（幂等）；重开时重新 register。 */
-    private HudRegistration hudRegistration;
+    /** Forge overlay：HUD 自绘入口（与全屏手机同一条 scene 管线）。 */
+    public static final class OverlayHandler {
+        @SubscribeEvent
+        public void onRenderOverlay(net.minecraftforge.client.event.RenderGameOverlayEvent.Post event) {
+            if (event == null || event.type != net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType.ALL) {
+                return;
+            }
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc == null) return;
+            PhoneHud.get().renderHud(mc, event.partialTicks);
+        }
+    }
 
-    /** 常驻 HUD 手机实例（工厂在建树时创建）。 */
-    private HudPhoneUi hudUi;
-    /** 工厂返回给宿主的内容根（外层定尺寸盒），用于读宿主的实测内容盒。 */
-    private SceneNode hudContent;
+    /**
+     * 1.7.10 读滚轮的正确时机：Forge 在 {@code Minecraft.runTick()} 的 {@code while (Mouse.next())}
+     * 循环体内派发 {@code MouseEvent}（{@code Minecraft.java:1776-1826}，每个鼠标事件一次），
+     * 事件体自带该事件的 {@code dwheel = Mouse.getEventDWheel()}。
+     *
+     * <p>为什么不轮询 {@code Mouse.getDWheel()}：它是消费式读取，读到即清零，任何更早的消费者
+     * （别的 mod 的 tick/overlay）都会让这里读到 0；而 {@code Mouse.getEventDWheel()} 只在事件
+     * 循环内有效，mod 无法在循环体里插代码，{@code MouseEvent} 就是那个位置的公开钩子。</p>
+     *
+     * <p>Ctrl 按住时消费掉该事件（{@code setCanceled}），顺带避免原版把同一个滚轮当成切换快捷栏
+     * （{@code Minecraft.java:1792-1796}）。</p>
+     */
+    public static final class MouseWheelHandler {
+        @SubscribeEvent
+        public void onMouseEvent(net.minecraftforge.client.event.MouseEvent event) {
+            if (event == null || event.dwheel == 0) return;
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.thePlayer == null || mc.theWorld == null || mc.currentScreen != null) return;
+            if (!isCtrlDown()) return;
+            PhoneHud hud = get();
+            hud.refreshConfigIfStale();
+            if (!hud.cfgEnabled || ClientHooks.isCameraMode()) return;
+            hud.applyScaleStep(event.dwheel > 0 ? 1 : -1);
+            event.setCanceled(true);
+        }
+    }
 
-    /** HUD 面板的 100% 设计尺寸（logical px）：宿主缩放只乘在它上面。 */
-    private int designW = -1;
-    private int designH = -1;
+    // ===================== 配置缓存 =====================
 
-    /** 已下发给宿主的意图放置盒（避免每 tick 重复写 Qz 放置存储）。 */
-    private AnchorRect pushedRect;
+    private boolean cfgEnabled;
+    private int cfgScalePercent = 100;
+    private String cfgAnchor = "CENTER_LEFT";
+    private int cfgOffsetX;
+    private int cfgOffsetY;
+    private long cfgStampMs;
+
+    /** 渲染资源（与全屏手机同款；图标能画出来的关键就是 minecraftDefaults() 的图片适配器）。 */
+    private final PaintContextCompositor compositor = new PaintContextCompositor();
+    private final UiMainLayerSnapshotService snapshotService = new UiMainLayerSnapshotService();
+    private final UiRuntimeAdapters adapters = UiRuntimeAdapters.minecraftDefaults();
+
+    /** HUD 常驻手机实例（设计尺寸变化时重建）。 */
+    private PhoneUi hudUi;
+    private int builtDesignW = -1;
+    private int builtDesignH = -1;
 
     /** 拖拽状态（tick 驱动）。 */
     private boolean dragging;
@@ -144,9 +204,16 @@ public final class PhoneHud {
     private int dragStartY;
     private int dragBaseOffsetX;
     private int dragBaseOffsetY;
+    /** 拖拽期间的实时偏移（只在内存里，松手才落盘一次）。 */
+    private int liveOffsetX;
+    private int liveOffsetY;
+
     /** 最近一次采样的指针位置（物理像素，左上原点）。 */
     private int pointerX = -1;
     private int pointerY = -1;
+
+    /** 诊断节流。 */
+    private long debugStampMs;
 
     private PhoneHud() {}
 
@@ -155,125 +222,8 @@ public final class PhoneHud {
         return hudUi != null;
     }
 
-    /** 释放 HUD：关闭宿主注册 + 释放手机实例（关世界/关 HUD 时）。 */
+    /** 释放 HUD 实例（关世界时）。 */
     public void disposeUi() {
-        closeRegistration();
-    }
-
-    // ===================== 客户端 tick：宿主同步 + 交互 =====================
-
-    private void tick(Minecraft mc) {
-        if (mc.thePlayer == null || mc.theWorld == null) {
-            closeRegistration();
-            dragging = false;
-            return;
-        }
-        // 指针位置（物理像素，左上原点；与宿主视口同坐标系 = displayWidth/Height）
-        pointerX = Mouse.getX();
-        pointerY = mc.displayHeight - Mouse.getY() - 1;
-        // 踩坑 #3：回调改树一律走 PhoneUi.post(...)，渲染帧开头 flush。
-        // HUD 不再经 PhoneUi.render（改由宿主管线绘制），所以这个 flush 落到客户端 tick。
-        PhoneUi.flushPendingActions();
-        if (mc.currentScreen != null) {
-            // 屏幕打开：宿主已按 HudVisibility.GAMEPLAY_ONLY 隐藏窗口，mcphone 也不接管指针。
-            dragging = false;
-            return;
-        }
-        ItemStack phone = ClientHooks.findPhone(mc);
-        if (!PhoneCanvas.isHudEnabled() || ClientHooks.isCameraMode() || phone == null) {
-            // 停显即注销（Qz 没有「临时隐藏」状态，HudVisibility 只有 GAMEPLAY_ONLY/IN_WORLD）。
-            closeRegistration();
-            dragging = false;
-            return;
-        }
-        int viewportW = Math.max(1, mc.displayWidth);
-        int viewportH = Math.max(1, mc.displayHeight);
-        syncHost(viewportW, viewportH);
-        // 先把「玩家选择的位置」下发（首次注册、world 重连后必下发），
-        // 命中盒才有宿主放置可镜像。
-        pushPlacement(viewportW, viewportH, false);
-        int[] hit = hitBox(viewportW, viewportH);
-        interact(mc, phone, hit);
-        // 拖拽/滚轮刚改过 PhoneCanvas：同 tick 回灌给宿主（下一帧起生效）。
-        pushPlacement(viewportW, viewportH, false);
-    }
-
-    /** 宿主侧同步：注册（首次/重开）、设计尺寸、缩放真值。 */
-    private void syncHost(int viewportW, int viewportH) {
-        int[] design = designSize(viewportW, viewportH);
-        if (design[0] != designW || design[1] != designH) {
-            designW = design[0];
-            designH = design[1];
-            if (hudUi != null) {
-                // PhoneUi 公开 API：重写面板 preferred 尺寸并联动内容槽/主页网格；
-                // 经 post 落到本 tick 之外（踩坑 #3：不在分发/渲染中改树）。
-                final HudPhoneUi ui = hudUi;
-                final int w = designW;
-                final int h = designH;
-                PhoneUi.postAction(() -> {
-                    if (hudUi == ui) ui.setPanelSize(w, h);   // 期间被关掉/重建则跳过
-                });
-            }
-        }
-        ensureRegistration();
-        syncScale();
-    }
-
-    /** 缩放真值交给宿主：PhoneCanvas.hudScalePercent → Qz HudScaleState（宿主按它缩放窗口）。 */
-    private void syncScale() {
-        HudScaleState state = HudToolbarService.getInstance().scale(HUD_ID);
-        if (state == null) return;
-        int percent = PhoneCanvas.getHudScalePercent();
-        // review F11：PhoneCanvas 允许 40，宿主 HudScaleState.MIN_PERCENT=50 ⇒ 40–49 会被静默夹到 50。
-        // 一次性提示（值变才再提示），避免"我设了 40 怎么变大了"被当成 bug。
-        if (percent < HUD_SCALE_MIN_HOST && percent != warnedLowScalePercent) {
-            warnedLowScalePercent = percent;
-            System.out.println("[mcphone] HUD 缩放 " + percent + "% 低于宿主下限 "
-                + HUD_SCALE_MIN_HOST + "%：已按 " + HUD_SCALE_MIN_HOST + "% 显示"
-                + "（mcphone 侧未改配置值，可在设置里改为 50–150%）");
-        }
-        if (state.percent().get() != percent) {
-            // Qz 口径 50–200（PhoneCanvas 允许 40，宿主下限 50），夹取由 HudScaleState.setPercent 负责。
-            state.setPercent(percent);
-        }
-    }
-
-    /** 首次/重开注册：HudSpec + HudWindowFactory。 */
-    private void ensureRegistration() {
-        if (hudRegistration != null) return;
-        if (designW <= 0 || designH <= 0) return;
-        HudSpec spec = HudSpec.builder(HUD_ID)
-                // 四角锚点：Placement 缺失时的兜底；真正的放置真值在 HudLayoutService（见 pushPlacement）。
-                .anchor(mappedAnchor())
-                // 世界内且无普通 GuiScreen：与旧 mc.currentScreen != null 判定等价。
-                .visibility(HudVisibility.GAMEPLAY_ONLY)
-                .margin(HUD_MARGIN)
-                .stackOrder(0)
-                // 必须 false：chrome(true) 的宿主外壳是 0xA0000000（63% 纯黑，先压暗玻璃采样源），
-                // 且其 padding 会把内容盒缩一圈（手机面板自己带圆角+玻璃+边框）。
-                .chrome(false)
-                .build();
-        hudRegistration = ClientHudService.getInstance().register(spec, this::buildContent);
-    }
-
-    /** 撤销注册 + 释放手机实例（幂等）。 */
-    private void closeRegistration() {
-        HudRegistration reg = hudRegistration;
-        hudRegistration = null;
-        if (reg != null) {
-            try {
-                reg.close();
-            } catch (Throwable t) {
-                System.err.println("[mcphone] hud registration close failed: " + t);
-            }
-        }
-        releaseUi();
-        pushedRect = null;
-    }
-
-    /** 释放 HUD 手机实例（不改注册表；工厂重挂载时先调一次）。 */
-    private void releaseUi() {
-        hudContent = null;
         if (hudUi != null) {
             try {
                 hudUi.dispose();
@@ -282,42 +232,207 @@ public final class PhoneHud {
             }
             hudUi = null;
         }
+        builtDesignW = -1;
+        builtDesignH = -1;
     }
 
-    // ===================== 内容树（HudWindowFactory） =====================
+    /**
+     * 玻璃设置（开关 / 档位 / 强度）变化后重建常显 HUD 的实例（review F10）。
+     *
+     * <p>HUD 用的是自建 {@code PhoneUi} 实例，构造后 {@code PhoneUi.ACTIVE} 被还原为全屏实例，
+     * 故它<b>不会</b>被 {@code PhoneUi.refreshGlassShell()} 的 ACTIVE 分支重建 ⇒ 只开 HUD 时改玻璃
+     * 设置，HUD 面板会停在旧档/旧底。本入口补齐。</p>
+     *
+     * <p>先取出实例与引用，再 post；执行时若已被关掉/重建（引用变了）则跳过。
+     * 通过 {@code rebuildShellTree()} + {@code rebuildPage()} 重建（与全屏实例同一路径），
+     * 不改观感、不改默认开启，也不触碰 PhoneCanvas。</p>
+     */
+    public static void onGlassSettingsChanged() {
+        final PhoneHud hud = instance;
+        if (hud == null) return;
+        final PhoneUi ui = hud.hudUi;
+        if (ui == null) return;
+        PhoneUi.postAction(() -> {
+            if (hud.hudUi != ui) return;   // 期间被关掉/重建 ⇒ 跳过
+            ui.rebuildShellTree();
+            ui.rebuildPage();
+        });
+    }
+
+    // ===================== 配置缓存：读盘收敛 =====================
+
+    private void refreshConfigIfStale() {
+        long now = System.currentTimeMillis();
+        if (now - cfgStampMs < CFG_REFRESH_MS) return;
+        cfgStampMs = now;
+        cfgEnabled = PhoneCanvas.isHudEnabled();
+        cfgScalePercent = PhoneCanvas.getHudScalePercent();
+        cfgAnchor = PhoneCanvas.getHudAnchor();
+        cfgOffsetX = PhoneCanvas.getHudOffsetX();
+        cfgOffsetY = PhoneCanvas.getHudOffsetY();
+    }
+
+    /** 自己写过的键：直接更新缓存，不立刻再读盘一遍。 */
+    private void applyScaleStep(int direction) {
+        int next = clamp(cfgScalePercent + direction * SCALE_STEP_PERCENT,
+            SCALE_MIN_PERCENT, SCALE_MAX_PERCENT);
+        if (next == cfgScalePercent) return;
+        cfgScalePercent = next;
+        PhoneCanvas.setHudScalePercent(next);
+    }
+
+    // ===================== 客户端 tick：交互 =====================
+
+    private void tick(Minecraft mc) {
+        if (mc.thePlayer == null || mc.theWorld == null) {
+            disposeUi();
+            dragging = false;
+            cfgStampMs = 0L;             // 下次进世界立刻重读配置
+            return;
+        }
+        // 踩坑 #3：回调改树一律走 PhoneUi.post(...)，这里统一 flush。
+        PhoneUi.flushPendingActions();
+        refreshConfigIfStale();
+        if (mc.currentScreen != null) {
+            dragging = false;
+            pointerX = -1;
+            pointerY = -1;
+            return;
+        }
+        ItemStack phone = ClientHooks.findPhone(mc);
+        if (!cfgEnabled || ClientHooks.isCameraMode() || phone == null) {
+            dragging = false;
+            return;
+        }
+        // 指针位置（物理像素，左上原点；与自绘用的 displayWidth/Height 同坐标系）。
+        // 注：1.7.10 世界里鼠标被 grab，OS 光标不可见，但 LWJGL 的 Mouse.getX/getY 在
+        // grabbed 态按增量推进（x += poll_x）并夹在窗口内 ⇒ 它是可用的「虚拟光标」，
+        // 只是玩家看不见；按住 Ctrl 时本类会画出一个小十字标出它（见 drawEditCursor）。
+        pointerX = Mouse.getX();
+        pointerY = mc.displayHeight - Mouse.getY() - 1;
+        Layout layout = layout(mc, phone, true);
+        interact(mc, phone, layout);
+        if (DEBUG) debugLog(mc, layout);
+    }
+
+    private void interact(Minecraft mc, ItemStack phone, Layout layout) {
+        boolean pressed = Mouse.isButtonDown(0);
+        if (pressed && !dragging && layout.contains(pointerX, pointerY)) {
+            dragging = true;
+            dragStartX = pointerX;
+            dragStartY = pointerY;
+            dragBaseOffsetX = cfgOffsetX;
+            dragBaseOffsetY = cfgOffsetY;
+            liveOffsetX = cfgOffsetX;
+            liveOffsetY = cfgOffsetY;
+        } else if (!pressed && dragging) {
+            // 松开：基本没动 = 点击打开手机；拖过 = 落盘位置（一次写 X+Y，旧实现是每 tick 两次）。
+            dragging = false;
+            int dx = pointerX - dragStartX;
+            int dy = pointerY - dragStartY;
+            if (Math.abs(dx) < CLICK_SLOP_PX && Math.abs(dy) < CLICK_SLOP_PX) {
+                openPhone(mc, phone);
+            } else {
+                commitOffsets(clamp(dragBaseOffsetX + dx, -OFFSET_LIMIT, OFFSET_LIMIT),
+                    clamp(dragBaseOffsetY + dy, -OFFSET_LIMIT, OFFSET_LIMIT));
+            }
+        } else if (dragging) {
+            liveOffsetX = dragBaseOffsetX + (pointerX - dragStartX);
+            liveOffsetY = dragBaseOffsetY + (pointerY - dragStartY);
+        }
+    }
+
+    private void commitOffsets(int x, int y) {
+        cfgOffsetX = x;
+        cfgOffsetY = y;
+        liveOffsetX = x;
+        liveOffsetY = y;
+        PhoneCanvas.setHudOffsetX(x);
+        PhoneCanvas.setHudOffsetY(y);
+    }
+
+    // ===================== 渲染 =====================
+
+    /** 每帧自绘（Forge overlay Post(ALL)）。 */
+    private void renderHud(Minecraft mc, float partialTicks) {
+        if (mc.thePlayer == null || mc.theWorld == null || mc.currentScreen != null) return;
+        refreshConfigIfStale();
+        if (!cfgEnabled || ClientHooks.isCameraMode()) return;
+        ItemStack phone = ClientHooks.findPhone(mc);
+        if (phone == null) return;
+        Layout layout = layout(mc, phone, true);
+        if (hudUi == null) return;
+        drawHud(layout, partialTicks);
+    }
 
     /**
-     * 内容工厂：宿主在挂载（含世界重连后重建）时调用一次，返回内容根。
+     * 面板的几何真值：设计尺寸、倍率、绘制原点与物理盒。
      *
-     * <p>入参 {@code runtime} 是宿主窗口自己的 scene runtime（内容树由宿主管线 layout/paint/flush）。
-     * {@link PhoneUi} 实例自带的 runtime 只承担信号绑定与 effect 归属；绑定物化走全局
-     * {@code ReactiveScheduler}，宿主的 flush 会一并应用。</p>
+     * <p><b>唯一事实源</b>：绘制与命中都只读这里的结果，不再有「镜像宿主」的第二套数学。</p>
      */
-    private SceneNode buildContent(SceneRuntime runtime) {
-        // 宿主重挂载：上一份内容不再是渲染源，先释放（不做注册表改动，避免宿主迭代中改注册表）。
-        releaseUi();
-        SceneNode box = SceneNode.column();
-        box.setHitTestable(false);
-        ItemStack phone = ClientHooks.findPhone(Minecraft.getMinecraft());
-        if (phone == null) {
-            // 兜底空内容：宿主按「空窗」整窗隐藏（SceneHudHost.RetainedWindow.isEmptyContent）。
-            return box;
-        }
-        // 按目标（100% 设计）尺寸建树：外壳/主页网格/文本宽度一次建对，避免大尺寸建树后再缩
-        // 导致网格单元与文本残留被面板裁剪（7ae1357 的内容裁半根因）。
-        box.setPreferredWidth(designW);
-        box.setPreferredHeight(designH);
+    private Layout layout(Minecraft mc, ItemStack phone, boolean ensureUi) {
+        int screenW = Math.max(1, mc.displayWidth > 0 ? mc.displayWidth : NativeDisplaySize.width());
+        int screenH = Math.max(1, mc.displayHeight > 0 ? mc.displayHeight : NativeDisplaySize.height());
+        int[] design = designSize(screenH);
+        float scale = clamp(cfgScalePercent, SCALE_MIN_PERCENT, SCALE_MAX_PERCENT) / 100.0F;
+        int physicalW = (int) Math.ceil(design[0] * scale);
+        int physicalH = (int) Math.ceil(design[1] * scale);
+        int offsetX = dragging ? liveOffsetX : cfgOffsetX;
+        int offsetY = dragging ? liveOffsetY : cfgOffsetY;
+        int[] origin = panelOrigin(screenW, screenH, physicalW, physicalH, offsetX, offsetY);
+        if (ensureUi) ensureUi(phone, design[0], design[1]);
+        return new Layout(screenW, screenH, design[0], design[1], scale,
+            origin[0], origin[1], physicalW, physicalH);
+    }
+
+    /** 100% 设计尺寸（logical px，与旧 panelSize / PhoneUi.BASE_PANEL_HEIGHT 同源）。 */
+    private static int[] designSize(int screenH) {
+        int h = clamp((int) (screenH * PhoneUi.basePanelHeight()), 320, 1100);
+        int w = clamp((int) (h * 0.56F), 200, 620);
+        return new int[] {w, h};
+    }
+
+    /**
+     * 面板左上角（物理像素）：九宫格锚点 + 玩家偏移，并按视口夹取（不让面板整块跑出屏幕）。
+     *
+     * <p>旧实现把夹取交给 Qz 放置服务，命中盒再镜像一遍；现在绘制与命中同源，夹一次即可。</p>
+     */
+    private int[] panelOrigin(int screenW, int screenH, int w, int h, int offsetX, int offsetY) {
+        String anchor = cfgAnchor;
+        boolean left = anchor.endsWith("LEFT");
+        boolean right = anchor.endsWith("RIGHT");
+        boolean top = anchor.startsWith("TOP");
+        boolean bottom = anchor.startsWith("BOTTOM");
+        int x = (left ? HUD_MARGIN : right ? screenW - w - HUD_MARGIN : (screenW - w) / 2) + offsetX;
+        int y = (top ? HUD_MARGIN : bottom ? screenH - h - HUD_MARGIN : (screenH - h) / 2) + offsetY;
+        x = clamp(x, 0, Math.max(0, screenW - w));
+        y = clamp(y, 0, Math.max(0, screenH - h));
+        return new int[] {x, y};
+    }
+
+    /**
+     * 保证 HUD 手机实例与当前设计尺寸匹配（屏幕变化/缩放改设计尺寸时重建）。
+     *
+     * <p>按<b>设计尺寸</b>建树（100%），倍率只在绘制时施加一次
+     * （{@code context.scaled(scale)}）——这样网格单元、文本宽度都是按 100% 设计算好的，
+     * 均匀缩小时不会出现「大尺寸建树 + 面板裁剪」的内容裁半。</p>
+     */
+    private void ensureUi(ItemStack phone, int designW, int designH) {
+        if (hudUi != null && builtDesignW == designW && builtDesignH == designH) return;
         PhoneUi prev = PhoneUi.ACTIVE;
         HudPhoneUi ui = new HudPhoneUi(phone, designW, designH);
         // PhoneUi 构造会抢占 ACTIVE（全屏实例指针/时钟语义），立即还原。
         PhoneUi.ACTIVE = prev;
+        // HUD 内容树整体关闭命中：输入归 mcphone 的 tick，避免 Qz 场景路由把点击派发给
+        // HUD 实例（那会让 HUD 自己跳页/响应悬停）。
+        disableHitTesting(ui.hudRoot());
+        disposeUi();
         hudUi = ui;
-        hudContent = box;
-        box.appendChild(ui.hudRoot());
-        return box;
+        builtDesignW = designW;
+        builtDesignH = designH;
     }
 
-    /** HUD 专用 PhoneUi：把基类 protected 的 getRoot() 暴露给内容工厂（不新增 PhoneUi 公开 API）。 */
+    /** HUD 专用 PhoneUi：把基类 protected 的 getRoot() 暴露给本类（不新增 PhoneUi 公开 API）。 */
     private static final class HudPhoneUi extends PhoneUi {
         HudPhoneUi(ItemStack phoneStack, int panelW, int panelH) {
             super(phoneStack, panelW, panelH);
@@ -328,226 +443,151 @@ public final class PhoneHud {
         }
     }
 
-    // ===================== 面板尺寸 / 放置真值 =====================
-
-    /**
-     * HUD 面板的 100% 设计尺寸（logical px；宿主视口就是帧缓冲像素，故与旧物理像素同量纲）。
-     *
-     * <p>缩放（{@code hudScalePercent}）不在这里乘：它下发给宿主 {@code HudScaleState}，
-     * 由宿主按 {@code ceil(设计尺寸 × 倍率)} 放置与绘制。旧的绝对闸门（[320,1100] / [200,620]）
-     * 随之改在 100% 设计尺寸上生效；旧代码里「宽度超过屏幕就夹到 screenW-40」的那道自算夹取删除，
-     * 改由宿主在 {@code SceneAnchorResolver.resolveViewport} 里把盒子夹进视口。</p>
-     */
-    private static int[] designSize(int viewportW, int viewportH) {
-        int h = (int) (viewportH * PhoneUi.basePanelHeight());
-        h = Math.max(320, Math.min(1100, h));
-        int w = (int) (h * 0.56);
-        w = Math.max(200, Math.min(620, w));
-        return new int[] {w, h};
-    }
-
-    /** 宿主的每窗口缩放倍率（{@code SceneHudHost.unifiedScaleFactor} = HudScaleState.factor()）。 */
-    private static float hudScaleFactor() {
-        HudScaleState state = HudToolbarService.getInstance().scale(HUD_ID);
-        float factor = state == null ? 1.0F : state.factor();
-        return factor > 0 ? factor : 1.0F;
-    }
-
-    /** 面板的物理尺寸：宿主按 {@code ceil(logical × scale)} 计（MeasuredHud 构造口径）。 */
-    private static int[] physicalPanelSize(float scale) {
-        int[] design = currentDesign();
-        return new int[] {
-            (int) Math.ceil(design[0] * scale),
-            (int) Math.ceil(design[1] * scale)
-        };
-    }
-
-    private static int[] currentDesign() {
-        PhoneHud hud = get();
-        return new int[] {hud.designW, hud.designH};
-    }
-
-    /** 宿主实测的内容盒（工厂内容根的 cachedLayout）；未测到则退回设计尺寸。 */
-    private int[] measuredContentBox() {
-        SceneNode content = hudContent;
-        int[] fallback = currentDesign();
-        if (content == null) return fallback;
-        Object box = content.getCachedLayout();
-        if (!(box instanceof LayoutBox)) return fallback;
-        LayoutBox layout = (LayoutBox) box;
-        return new int[] {
-            layout.getWidth() > 0 ? layout.getWidth() : fallback[0],
-            layout.getHeight() > 0 ? layout.getHeight() : fallback[1]
-        };
-    }
-
-    /**
-     * 把「玩家选择的位置」交给 Qz 放置真值（{@code HudLayoutService}）。
-     *
-     * <p>mcphone 不再自己算渲染原点（旧 {@code panelOrigin} 已删）：这里只把 PhoneCanvas 的
-     * 九宫格锚点语义 + 偏移换算成四角锚点 + {@code HudPlacement} 偏移，宿主
-     * （{@code SceneHudHost.placeAndFrame} → {@code HudLayoutResolver.resolve}）负责解析、夹取与绘制。</p>
-     */
-    private void pushPlacement(int viewportW, int viewportH, boolean force) {
-        if (hudRegistration == null || designW <= 0) return;
-        float scale = hudScaleFactor();
-        int[] panel = physicalPanelSize(scale);
-        HudPlacement want = intentPlacement(viewportW, viewportH, panel[0], panel[1]);
-        AnchorRect wantRect = resolvePlacement(want, viewportW, viewportH, panel[0], panel[1]);
-        HudPlacement now = HudLayoutService.getInstance().placement(HUD_ID);
-        if (!force && now != null && pushedRect != null && sameRect(wantRect, pushedRect)) return;
-        HudLayoutService.getInstance().commit(HUD_ID, want);
-        pushedRect = wantRect;
-    }
-
-    /**
-     * 旧九宫格锚点语义 → Qz 四角锚点 + 偏移。
-     *
-     * <p>Qz 的 offset 以「锚边」为正方向（{@code HudLayoutResolver.resolve}：right/bottom 分支做减法），
-     * 所以右侧/底部锚点要取反向差值，才能得到与旧 {@code panelOrigin} 一致的像素位置。</p>
-     */
-    private static HudPlacement intentPlacement(int viewportW, int viewportH, int panelW, int panelH) {
-        String anchorName = PhoneCanvas.getHudAnchor();
-        boolean left = anchorName.endsWith("LEFT");
-        boolean right = anchorName.endsWith("RIGHT");
-        boolean top = anchorName.startsWith("TOP");
-        boolean bottom = anchorName.startsWith("BOTTOM");
-        int x = (left ? HUD_MARGIN : right ? viewportW - panelW - HUD_MARGIN : (viewportW - panelW) / 2)
-                + PhoneCanvas.getHudOffsetX();
-        int y = (top ? HUD_MARGIN : bottom ? viewportH - panelH - HUD_MARGIN : (viewportH - panelH) / 2)
-                + PhoneCanvas.getHudOffsetY();
-        HudAnchor anchor = mappedAnchor();
-        int offX = isRight(anchor) ? (viewportW - panelW) - x : x;
-        int offY = isBottom(anchor) ? (viewportH - panelH) - y : y;
-        return HudPlacement.of(anchor, offX, offY);
-    }
-
-    private static HudAnchor mappedAnchor() {
-        String anchorName = PhoneCanvas.getHudAnchor();
-        boolean right = anchorName.endsWith("RIGHT");
-        boolean bottom = anchorName.startsWith("BOTTOM");
-        if (right) return bottom ? HudAnchor.BOTTOM_RIGHT : HudAnchor.TOP_RIGHT;
-        return bottom ? HudAnchor.BOTTOM_LEFT : HudAnchor.TOP_LEFT;
-    }
-
-    private static boolean isRight(HudAnchor anchor) {
-        return anchor == HudAnchor.TOP_RIGHT || anchor == HudAnchor.BOTTOM_RIGHT;
-    }
-
-    private static boolean isBottom(HudAnchor anchor) {
-        return anchor == HudAnchor.BOTTOM_LEFT || anchor == HudAnchor.BOTTOM_RIGHT;
-    }
-
-    /**
-     * 宿主的放置盒解析（镜像 {@code SceneHudHost.placeAndFrame} 的两条分支）：
-     * 有 Placement 覆盖走 {@code HudLayoutResolver.resolve}，否则走四角锚定
-     * {@code SceneAnchorResolver.resolveViewport}。
-     *
-     * <p>安全区（HudInsets）用 NONE：其它 mod 经 registerAvoidance 撑大的安全区在 mcphone 侧
-     * 读不到（宿主实例不外露），这是已知的命中盒残余偏差，列入手测清单。</p>
-     */
-    private static AnchorRect resolvePlacement(HudPlacement placement,
-            int viewportW, int viewportH, int boxW, int boxH) {
-        if (placement != null) {
-            return HudLayoutResolver.resolve(placement, viewportW, viewportH, boxW, boxH, HudInsets.NONE);
+    /** 递归关闭命中（只影响 hit test，不改布局/绘制）。 */
+    private static void disableHitTesting(SceneNode node) {
+        if (node == null) return;
+        node.setHitTestable(false);
+        for (SceneNode child : node.__getChildren()) {
+            disableHitTesting(child);
         }
-        HudAnchor anchor = mappedAnchor();
-        SceneAnchorResolver.ResolvedViewport placed = SceneAnchorResolver.resolveViewport(
-                isRight(anchor), isBottom(anchor), viewportW, viewportH, boxW, boxH,
-                HUD_MARGIN, 0, 0, 0, 0, 0);
-        return new AnchorRect(placed.getX(), placed.getY(), placed.getWidth(), placed.getHeight());
     }
 
     /**
-     * 命中盒 = 宿主实际绘制盒的只读镜像（物理像素，左上原点）。
-     *
-     * <p>逐步对照 Qz 4.9.1 {@code SceneHudHost}：render 的内容测量夹取
-     * （minWidth/maxWidth + 逻辑视口约束）→ {@code MeasuredHud} 的
-     * {@code ceil(logical×scale)} → placeAndFrame 的放置解析 → framePlaced 的
-     * {@code /scale} 取整 + 回乘 scale。指针坐标（Mouse）与宿主视口同为 displayWidth/Height 系，
-     * 故可直接比较。</p>
+     * 绘制一帧 HUD：自设 ortho/viewport（与 beta.2 的手搓宿主同构），
+     * 用 {@code UiRuntimeAdapters.minecraftDefaults()} 建上下文 ⇒ 图标/壁纸等
+     * {@code HostImageSource} 与全屏手机一样能真正画出来。
      */
-    private int[] hitBox(int viewportW, int viewportH) {
-        float scale = hudScaleFactor();
-        int width = Math.max(1, viewportW);
-        int height = Math.max(1, viewportH);
-        // 1) 宿主的 measure 约束 = 逻辑视口（floor(物理 / scale)），内容盒被它夹取。
-        int logicalViewportW = Math.max(1, (int) Math.floor(width / scale));
-        int logicalViewportH = Math.max(1, (int) Math.floor(height / scale));
-        int[] measured = measuredContentBox();
-        int boxW = Math.min(measured[0] > 0 ? measured[0] : designW, logicalViewportW);
-        int boxH = Math.min(measured[1] > 0 ? measured[1] : designH, logicalViewportH);
-        // 2) 宿主的宽度夹取（HudSpec 口径）+ MeasuredHud 的物理尺寸口径。
-        int minWidth = SPEC_MIN_WIDTH == 0 ? Math.min(HOST_DEFAULT_MIN_WIDTH, SPEC_MAX_WIDTH) : SPEC_MIN_WIDTH;
-        int itemW = Math.max(minWidth, Math.min(SPEC_MAX_WIDTH, boxW));
-        int itemH = Math.max(1, boxH);
-        int physicalW = (int) Math.ceil(itemW * scale);
-        int physicalH = (int) Math.ceil(itemH * scale);
-        // 3) 放置盒（宿主：placement 覆盖分支 / 锚定回退分支）。
-        AnchorRect placed = resolvePlacement(HudLayoutService.getInstance().placement(HUD_ID),
-                width, height, physicalW, physicalH);
-        // 4) framePlaced：/scale 取整成逻辑盒，再回乘 scale 得实际绘制盒。
-        int logicalX = Math.round(placed.getX() / scale);
-        int logicalY = Math.round(placed.getY() / scale);
-        int logicalW = Math.max(1, Math.min(itemW, (int) Math.floor(placed.getWidth() / scale)));
-        int logicalH = Math.max(1, Math.min(itemH, (int) Math.floor(placed.getHeight() / scale)));
-        int physX = Math.round(logicalX * scale);
-        int physY = Math.round(logicalY * scale);
-        int physW = Math.round((logicalX + logicalW) * scale) - physX;
-        int physH = Math.round((logicalY + logicalH) * scale) - physY;
-        return new int[] {physX, physY, physW, physH};
-    }
-
-    private static boolean sameRect(AnchorRect a, AnchorRect b) {
-        return a.getX() == b.getX() && a.getY() == b.getY()
-                && a.getWidth() == b.getWidth() && a.getHeight() == b.getHeight();
-    }
-
-    // ===================== 交互（宿主不注入输入 ⇒ 全在 mcphone） =====================
-
-    private void interact(Minecraft mc, ItemStack phone, int[] hit) {
-        // Ctrl+滚轮缩放（步进 10%，40–150，落 PhoneCanvas；宿主 HudScaleState 负责真正缩放）。
-        int wheel = Mouse.getDWheel();
-        if (wheel != 0 && isCtrlDown() && (dragging || insidePanel(pointerX, pointerY, hit))) {
-            PhoneCanvas.setHudScalePercent(PhoneCanvas.getHudScalePercent() + (wheel > 0 ? 10 : -10));
-            return;
-        }
-
-        boolean pressed = Mouse.isButtonDown(0);
-        if (pressed && !dragging && insidePanel(pointerX, pointerY, hit)) {
-            dragging = true;
-            dragStartX = pointerX;
-            dragStartY = pointerY;
-            dragBaseOffsetX = PhoneCanvas.getHudOffsetX();
-            dragBaseOffsetY = PhoneCanvas.getHudOffsetY();
-        } else if (!pressed && dragging) {
-            // 松开：基本没动 = 点击打开手机；拖过 = 落盘位置。
-            dragging = false;
-            int dx = pointerX - dragStartX;
-            int dy = pointerY - dragStartY;
-            if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-                openPhone(mc, phone);
-            } else {
-                PhoneCanvas.setHudOffsetX(dragBaseOffsetX + dx);
-                PhoneCanvas.setHudOffsetY(dragBaseOffsetY + dy);
+    private void drawHud(Layout layout, float partialTicks) {
+        int screenW = layout.screenW;
+        int screenH = layout.screenH;
+        int frameBaseDepth = GlAttribDepth.current();
+        int previousMatrixMode = GL11.glGetInteger(GL11.GL_MATRIX_MODE);
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPushMatrix();
+        try {
+            GL11.glLoadIdentity();
+            GL11.glOrtho(0.0D, screenW, screenH, 0.0D, -1000.0D, 1000.0D);
+            GL11.glViewport(0, 0, screenW, screenH);
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glPushMatrix();
+            try {
+                GL11.glLoadIdentity();
+                UiHostRenderSupport.prepareMainUiRenderState();
+                compositor.beginFrame();
+                snapshotService.beginFrame();
+                try {
+                    UiRenderContext context = UiHostRenderSupport.createRenderContext(
+                        screenW, screenH, pointerX, pointerY, partialTicks,
+                        compositor, snapshotService, adapters);
+                    // 设计尺寸 -> 物理尺寸只施加一次；absX/absY 走「逻辑原点」（replayer 会给每条
+                    // 命令加 offset，再由 scaled 后端乘倍率，故必须传物理原点 / scale）。
+                    int logicalX = Math.round(layout.x / layout.scale);
+                    int logicalY = Math.round(layout.y / layout.scale);
+                    hudUi.render(layout.designW, layout.designH, context.scaled(layout.scale),
+                        logicalX, logicalY);
+                    if (isCtrlDown()) drawEditCursor(context);
+                } finally {
+                    snapshotService.finishFrame();
+                    compositor.finishFrame();
+                }
+            } finally {
+                GL11.glMatrixMode(GL11.GL_MODELVIEW);
+                GL11.glPopMatrix();
             }
-        } else if (dragging) {
-            PhoneCanvas.setHudOffsetX(dragBaseOffsetX + (pointerX - dragStartX));
-            PhoneCanvas.setHudOffsetY(dragBaseOffsetY + (pointerY - dragStartY));
+        } finally {
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glPopMatrix();
+            GL11.glMatrixMode(previousMatrixMode);
+            GlAttribDepth.popExcess(frameBaseDepth);
         }
     }
 
-    private static boolean insidePanel(int px, int py, int[] box) {
-        return px >= box[0] && px < box[0] + box[2]
-            && py >= box[1] && py < box[1] + box[3];
+    /**
+     * 按住 Ctrl（= HUD 编辑态）时在指针处画一个小十字。
+     *
+     * <p>为什么需要：世界里鼠标被 grab，OS 光标不可见，而命中判定用的是 LWJGL 的虚拟光标位置
+     * ⇒ 玩家「看着面板点」时并不知道光标在哪，表现为「点击/拖拽完全无法操控」。画出光标后，
+     * 悬停命中、Ctrl+滚轮缩放、拖拽都变成可瞄准的操作。</p>
+     */
+    private void drawEditCursor(UiRenderContext context) {
+        int x = pointerX;
+        int y = pointerY;
+        if (x < 0 || y < 0) return;
+        int white = 0xFFFFFFFF;
+        int shadow = 0x80000000;
+        context.fillRect(x - 6, y - 6, x + 7, y - 5, shadow);
+        context.fillRect(x - 6, y + 6, x + 7, y + 7, shadow);
+        context.fillRect(x - 6, y - 6, x - 5, y + 7, shadow);
+        context.fillRect(x + 6, y - 6, x + 7, y + 7, shadow);
+        context.fillRect(x - 5, y - 5, x + 6, y - 4, white);
+        context.fillRect(x - 5, y + 5, x + 6, y + 6, white);
+        context.fillRect(x - 5, y - 5, x - 4, y + 6, white);
+        context.fillRect(x + 5, y - 5, x + 6, y + 6, white);
+        context.fillRect(x - 1, y - 1, x + 1, y + 1, white);
+    }
+
+    // ===================== 小工具 =====================
+
+    private static void openPhone(Minecraft mc, ItemStack phone) {
+        PhoneHud hud = instance;
+        if (hud != null && hud.hudUi != null) {
+            // HUD 侧回到主屏：点击 HUD 的语义是「打开手机」，不是让 HUD 自己跳页。
+            hud.hudUi.backHome();
+        }
+        mc.displayGuiScreen(new com.november.mcphone.client.scene.PhoneScreen(
+            new PhoneUi(phone)));
+    }
+
+    private void debugLog(Minecraft mc, Layout layout) {
+        long now = System.currentTimeMillis();
+        if (now - debugStampMs < 1000L) return;
+        debugStampMs = now;
+        System.out.println("[mcphone][hud] screen=" + mc.displayWidth + "x" + mc.displayHeight
+            + " design=" + layout.designW + "x" + layout.designH
+            + " scale=" + layout.scale
+            + " rect=(" + layout.x + "," + layout.y + "," + layout.w + "," + layout.h + ")"
+            + " pointer=(" + pointerX + "," + pointerY + ")"
+            + " inside=" + layout.contains(pointerX, pointerY)
+            + " anchor=" + cfgAnchor + " offset=(" + cfgOffsetX + "," + cfgOffsetY + ")"
+            + " scale%=" + cfgScalePercent + " dragging=" + dragging);
     }
 
     private static boolean isCtrlDown() {
         return Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL);
     }
 
-    private static void openPhone(Minecraft mc, ItemStack phone) {
-        mc.displayGuiScreen(new com.november.mcphone.client.scene.PhoneScreen(
-            new PhoneUi(phone)));
+    private static int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    /** 一帧的几何真值（绘制与命中共用）。 */
+    private static final class Layout {
+        final int screenW;
+        final int screenH;
+        final int designW;
+        final int designH;
+        final float scale;
+        /** 绘制原点（物理像素，左上原点）。 */
+        final int x;
+        final int y;
+        final int w;
+        final int h;
+
+        Layout(int screenW, int screenH, int designW, int designH, float scale,
+               int x, int y, int w, int h) {
+            this.screenW = screenW;
+            this.screenH = screenH;
+            this.designW = designW;
+            this.designH = designH;
+            this.scale = scale;
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+        }
+
+        boolean contains(int px, int py) {
+            return px >= x && px < x + w && py >= y && py < y + h;
+        }
     }
 }

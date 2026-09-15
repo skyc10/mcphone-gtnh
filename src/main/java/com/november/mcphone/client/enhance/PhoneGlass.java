@@ -67,6 +67,8 @@ import club.heiqi.uilib.ui.scene.node.SceneNode;
  * </pre>
  * <p>lens 实际值 = 角色基础 lens（主壳 0.5 / 内容 0.35 / 状态栏 0.3 / 按钮 1.0，§6.2）
  * × 用户全局缩放（{@code glassLensStrength}，默认 1.0）× 档系数 × 降级系数。
+ * <b>该最终值参与配方缓存键</b>（见 {@link #LENS_STEPS} / {@link #backdrop}）：用户缩放或
+ * 渲染路径一变，键即变、配方即重建——这是「玻璃强度」滑条生效的必要条件。
  * 文字色按档配对：DARK_* 档一律配浅色字（§9.1 总则 2），由 {@link #text()} / {@link #muted()} 给出。</p>
  */
 public final class PhoneGlass {
@@ -226,13 +228,42 @@ public final class PhoneGlass {
     /** 可选玻璃类：0=材质档 1=UiBackdrop 2=UiBackdropEffect 3=渲染路径枚举 4=UiRenderContext。 */
     private static volatile Class<?>[] optional;
 
-    /** 配方缓存：[档序号 0..4][角色混合下标]。参数离散故可缓存。 */
-    private static final Object[] RECIPE_CACHE = new Object[5 * 101];
+    /** 档维步长：沿用旧布局 {@code tier.ordinal() * 101 + mixIndex(role)}（mixIndex 最大 1 + 5*16 = 81 &lt; 101）。 */
+    private static final int TIER_STRIDE = 101;
+
+    /**
+     * 强度量化档数：最终 lens（0~1）按 {@code 1 / LENS_STEPS} 量化后进缓存键。
+     *
+     * <p><b>为什么 lens 必须进键</b>：{@code UiBackdrop} 是不可变值对象，lens 只在首次构造
+     * 配方时求值一次；旧实现只按 {@code (档, 角色)} 缓存 ⇒ 设置页「玻璃强度」滑条提交后
+     * 虽然整壳重建、也重新调了 {@code apply}，但取到的仍是<b>旧 lens 的那份配方</b>
+     * （滑条完全无观感变化，直到重启进程）。</p>
+     *
+     * <p><b>为什么量化而不是用 raw float 当键</b>：量化后缓存严格有界（5 档 × 101 角色槽 ×
+     * 101 强度档），不会随拖动无限增长；0.01 比设置页滑条步长 0.05 更细 ⇒ 不丢任何滑条档位。
+     * 构造配方用<b>量化后</b>的值，键与值同源（不存在"同键不同 lens"）。</p>
+     */
+    private static final int LENS_STEPS = 100;
+    /** 强度维槽数（量化档 0..{@link #LENS_STEPS}）。 */
+    private static final int LENS_BUCKETS = LENS_STEPS + 1;
+
+    /** 配方缓存：[档序号 0..4][角色混合下标][强度量化档 0..100]。参数离散故可缓存。 */
+    private static final Object[] RECIPE_CACHE = new Object[5 * TIER_STRIDE * LENS_BUCKETS];
     /** 每格只尝试一次（失败留哨兵，避免重复反射）。 */
     private static final Object RECIPE_FAILED = new Object();
 
-    /** 诊断读数的 mcphone 侧缓存：-1 = 尚未读取。 */
+    /**
+     * 诊断读数的 mcphone 侧最近值：{@code -1} = 尚未读取。
+     *
+     * <p>只用于判断「路径码是否变化」（决定要不要刷新 label/detail、要不要写诊断日志），
+     * <b>不再作为 {@link #renderPath()} 的返回值缓存</b>——AUTO 必须按<b>当前</b>路径解析，
+     * 见 {@link #renderPath()} 的时序说明。</p>
+     */
     private static volatile int cachedPathCode = -1;
+    /** 诊断反射入口缓存：{@code getLastBackdropFilterRenderPath()}（避免每次现读都 getMethod）。 */
+    private static volatile java.lang.reflect.Method diagPathMethod;
+    /** 诊断反射入口缓存：{@code getLastBackdropFilterDetail()}。 */
+    private static volatile java.lang.reflect.Method diagDetailMethod;
     private static volatile String cachedPathLabel = "";
     private static volatile String cachedDetail = "";
 
@@ -371,6 +402,12 @@ public final class PhoneGlass {
      * </ul>
      * <p>注意：AUTO 只影响<b>观感档位</b>，不决定「是否上玻璃」——上玻璃与否只由
      * {@link #glassOn()}（开关 + 能力）决定；实际不绘时用户看到的是最薄档，而不是忽然换一套配色。</p>
+     *
+     * <p><b>实时性（本次修复）</b>：{@link #renderPath()} 现在是<b>现读</b>，所以本方法解析的是
+     * 「最近一帧实际走过的路径」。首次建树发生在任何 backdrop 被绘制之前 ⇒ 那一轮必然是
+     * {@code NONE ⇒ ULTRA_THIN}（极薄）；一旦某帧真的走到 {@code SHADER}，此后任何重建
+     * （关掉重开手机 / 切页 / 改玻璃设置）都会解析到 {@code THIN}（薄 / blur 8 / lens 1.0）。
+     * 这是刻意保留的过渡，不是缺陷。</p>
      */
     private static Tier autoTier() {
         Path path = renderPath();
@@ -509,12 +546,23 @@ public final class PhoneGlass {
     // 配方构造（反射 + 缓存；任何失败静默 no-op）
     // =====================================================================
 
-    /** 构造（或取缓存）底层 {@code UiBackdrop}；返回 {@code null} = 无法构造。 */
+    /**
+     * 构造（或取缓存）底层 {@code UiBackdrop}；返回 {@code null} = 无法构造。
+     *
+     * <p><b>缓存键 = (档, 角色, 量化 lens)</b>，覆盖 {@code UiBackdrop.liquidGlass(material,
+     * blurRadius, lensStrength)} 的全部三个入参：{@code material}（{@link #materialName}）与
+     * {@code blurRadius}（{@link #blurRadius}）都是 {@code tier} 的纯函数，角色决定基色与基础
+     * lens，而最终 lens 还额外取决于<b>用户强度</b>（{@code PhoneCanvas.getGlassLensStrength}）
+     * 与<b>降级系数</b>（{@link #lensDegradeFactor} ← {@link #renderPath()}）——这两项正是旧键
+     * 漏掉的入参，也是「玻璃强度滑条无效」的唯一根因。</p>
+     */
     private static Object backdrop(Tier tier, Role role) {
         Class<?> backdropClass = optionalType(1);
         Object material = materialConstant(tier);
         if (backdropClass == null || material == null) return null;
-        int slot = tier.ordinal() * 101 + mixIndex(role);
+        int bucket = lensBucket(lensFor(role, tier));
+        float lens = bucket / (float) LENS_STEPS;
+        int slot = (tier.ordinal() * TIER_STRIDE + mixIndex(role)) * LENS_BUCKETS + bucket;
         Object cached = RECIPE_CACHE[slot];
         if (cached != null) {
             return cached == RECIPE_FAILED ? null : cached;
@@ -522,12 +570,38 @@ public final class PhoneGlass {
         Object built;
         try {
             built = backdropClass.getMethod("liquidGlass", optionalType(0), int.class, float.class)
-                .invoke(null, material, blurRadius(tier), lensFor(role, tier));
+                .invoke(null, material, blurRadius(tier), lens);
         } catch (Throwable t) {
             built = null;
         }
         RECIPE_CACHE[slot] = (built == null) ? RECIPE_FAILED : built;
         return built;
+    }
+
+    /** 最终 lens → 量化档（0..{@link #LENS_STEPS}）；NaN / 越界一律夹到合法档。 */
+    private static int lensBucket(float lens) {
+        return Math.round(clamp01(lens) * LENS_STEPS);
+    }
+
+    /**
+     * 清空配方缓存（玻璃开关 / 档位 / 强度写入时由 {@code PhoneCanvas} 的 setter 调用）。
+     *
+     * <p><b>与量化 lens 键的关系</b>：键已经覆盖「档 + 角色 + 最终 lens」的全部入参，故本方法是
+     * <b>冗余的防御</b>——它保证「任何设置写入之后，下一次 {@link #apply} 必然重新读一遍
+     * {@code PhoneCanvas} 与渲染路径诊断」，即便将来有新的入参进配方却忘了进键，也不会
+     * 继续复用旧配方。</p>
+     *
+     * <p><b>代价</b>：一次 {@code Arrays.fill} 写 5×101×101 = 51005 个引用槽（微秒级），只在设置
+     * <b>提交</b>时发生（滑条拖动预览不触发），不在渲染路径上。</p>
+     *
+     * <p><b>不负责重新 apply</b>：重新上玻璃由调用方走既有整壳重建路径
+     * （{@code ScenePages} → {@code PhoneUi.refreshGlassShell()}）。Qz 侧
+     * {@code SceneNode.setBackdrop} 对被 {@code SceneSurfaceBinder} 接管的节点会抛
+     * {@code IllegalStateException}（jar 内 {@code requireSurfaceWritable}），
+     * <b>已挂载节点无法就地改配方</b>，只能用新节点。</p>
+     */
+    public static void invalidateRecipes() {
+        java.util.Arrays.fill(RECIPE_CACHE, null);
     }
 
     /** 角色枚举序号（0..5）→ 配方缓存的第二维下标。 */
@@ -668,22 +742,32 @@ public final class PhoneGlass {
     // =====================================================================
 
     /**
-     * 最近一次 backdrop-filter 实际渲染路径。
+     * 最近一次 backdrop-filter 实际渲染路径（<b>实时读取</b>，不再进程内冻结）。
      *
-     * <p>幂等：只在本会话首次调用时反射读取 Qz 静态值并缓存（Qz 侧为进程级 volatile，
-     * 语义 =「最近一次真的走到渲染器的 backdrop 请求」，不是逐节点、也不是每帧复位）。
-     * 需要最新值时可调 {@link #refreshDiagnostics()}。</p>
+     * <p>Qz 侧口径：进程级 volatile，语义 =「最近一次真的走到渲染器的 backdrop 请求」，
+     * 不是逐节点、也不是每帧复位。<b>AUTO 的语义是「按当前渲染路径解析」</b>（设计 §6.2），
+     * 所以这里必须每次现读：旧实现只在进程内首次调用时读一次并永久缓存，而首次调用发生在
+     * <b>任何 backdrop 被绘制之前</b>（建壳期），Qz 侧初值恒为 {@code NONE}
+     * （{@code UiBackdropFilterRenderer.lastRenderPath = NONE}）⇒ AUTO 恒等于
+     * {@code ULTRA_THIN}，设计意图（SHADER ⇒ THIN / blur 8 / lens 1.0）<b>永不可达</b>。</p>
+     *
+     * <p><b>为什么不能"读到非 NONE 就冻结"</b>：首帧主层快照未就绪时 Qz 会先走 tint 兜底并记录
+     * {@code TINT_FALLBACK}（{@code UiBackdropFilterRenderer:145} texture-copy-unavailable /
+     * {@code :152} snapshot-unavailable → {@code drawTintFallback} → {@code :376 recordPath}；
+     * 兜底被配置关闭时在 {@code :373} 记录 {@code NONE}），随后才转为 {@code SHADER}。任何"单调冻结"都会把这个
+     * <b>瞬态降级</b>固化成永久档位 ⇒ 必须实读。</p>
+     *
+     * <p><b>成本</b>：一次「已缓存的 {@code Method} 静态 invoke + enum 名比较」。无
+     * {@code getMethod}（Method 惰性缓存）、无字符串拼接、无装箱/集合分配；label/detail
+     * 只在<b>路径码变化</b>时重读（供 {@link #logDiagnosticsIfChanged()} 的"值变才打印"）。
+     * 调用点（{@link #apply} / {@link #surface} / {@link #text} / {@link #muted} /
+     * {@link #compositeAlpha} / 诊断展示）全部在<b>建树或设置提交</b>路径上，不在逐帧渲染
+     * 路径上；且 {@link #resolveTier} 先过 {@link #glassOn()} 守卫，玻璃关闭时根本不走到这里。</p>
      */
     public static Path renderPath() {
         if (!available()) return Path.UNAVAILABLE;
-        Class<?> contextClass = optionalType(4);
-        if (contextClass == null) return Path.UNAVAILABLE;
-        int code = cachedPathCode;
-        if (code < 0) {
-            code = readPathCode(contextClass);
-            cachedPathCode = code;
-        }
-        return decode(code);
+        if (optionalType(4) == null) return Path.UNAVAILABLE;
+        return decode(readPathCodeLive());
     }
 
     /** Qz 原始路径标签（{@code getLabel()}）；类缺失时返回 {@code "unavailable"}。 */
@@ -699,13 +783,16 @@ public final class PhoneGlass {
         return cachedDetail;
     }
 
-    /** 重读诊断（F3 覆写 / 调试页用；正常路径不必调用）。 */
+    /**
+     * 强制重读诊断（含 label/detail 文案）。
+     *
+     * <p>{@link #renderPath()} 现在本来就是实时的，本方法只额外保证「即使路径码没变、
+     * 也把 {@code getLabel()} / {@code getLastBackdropFilterDetail()} 刷新一遍」，
+     * 供 F3 覆写 / 调试页取最新读数。</p>
+     */
     public static void refreshDiagnostics() {
-        cachedPathCode = -1;
-        Class<?> contextClass = optionalType(4);
-        if (contextClass != null) {
-            cachedPathCode = readPathCode(contextClass);
-        }
+        cachedPathCode = -1;   // 令紧接着的实时读取必然走「值变」分支
+        renderPath();
     }
 
     /** 状态变化才打印用的一行摘要（调用方自行做「值变才写」，避免每帧刷屏，§3.3）。 */
@@ -742,21 +829,43 @@ public final class PhoneGlass {
         }
     }
 
-    private static int readPathCode(Class<?> contextClass) {
+    /**
+     * 实时读取路径码：{@code 0=NONE 1=SHADER 2=FIXED_PIPELINE 3=TINT_FALLBACK}。
+     *
+     * <p>反射入口 {@code Method} 惰性缓存一次；label/detail 只在路径码<b>变化</b>时重读
+     * （诊断文案，避免每次调用都建字符串）。读取失败静默回落 {@code NONE}（不影响渲染），
+     * 且不缓存失败的 Method（下次再试）。</p>
+     */
+    private static int readPathCodeLive() {
         try {
-            Object path = contextClass.getMethod("getLastBackdropFilterRenderPath").invoke(null);
-            if (path == null) return 0; // NONE
-            String name = String.valueOf(((Enum<?>) path).name());
-            cachedPathLabel = labelOf(path);
-            cachedDetail = detailOf(contextClass);
-            if ("SHADER".equals(name)) return 1;
-            if ("FIXED_PIPELINE".equals(name)) return 2;
-            if ("TINT_FALLBACK".equals(name)) return 3;
-            return 0;
+            java.lang.reflect.Method method = diagPathMethod;
+            if (method == null) {
+                Class<?> contextClass = optionalType(4);
+                if (contextClass == null) return 0;
+                method = contextClass.getMethod("getLastBackdropFilterRenderPath");
+                diagPathMethod = method;
+            }
+            Object path = method.invoke(null);
+            if (path == null) return markPath(0, null);
+            String name = ((Enum<?>) path).name();
+            if ("SHADER".equals(name)) return markPath(1, path);
+            if ("FIXED_PIPELINE".equals(name)) return markPath(2, path);
+            if ("TINT_FALLBACK".equals(name)) return markPath(3, path);
+            return markPath(0, path);
         } catch (Throwable t) {
-            // 诊断不可读不影响渲染 ⇒ 静默（且不再重试，避免每帧反射抛异常）。
+            // 诊断不可读不影响渲染 ⇒ 静默（异常路径不写 cachedPathCode，下次读取会再试）。
             return 0;
         }
+    }
+
+    /** 路径码变化时才刷新 label/detail（诊断文案）；返回本次路径码。 */
+    private static int markPath(int code, Object path) {
+        if (code != cachedPathCode) {
+            cachedPathLabel = (path == null) ? "" : labelOf(path);
+            cachedDetail = detailOf();
+            cachedPathCode = code;
+        }
+        return code;
     }
 
     private static String labelOf(Object path) {
@@ -768,9 +877,17 @@ public final class PhoneGlass {
         }
     }
 
-    private static String detailOf(Class<?> contextClass) {
+    /** 读 Qz 诊断说明（Method 惰性缓存）；失败回空串。只在路径码变化时调用。 */
+    private static String detailOf() {
         try {
-            Object detail = contextClass.getMethod("getLastBackdropFilterDetail").invoke(null);
+            java.lang.reflect.Method method = diagDetailMethod;
+            if (method == null) {
+                Class<?> contextClass = optionalType(4);
+                if (contextClass == null) return "";
+                method = contextClass.getMethod("getLastBackdropFilterDetail");
+                diagDetailMethod = method;
+            }
+            Object detail = method.invoke(null);
             return (detail == null) ? "" : String.valueOf(detail);
         } catch (Throwable t) {
             return "";

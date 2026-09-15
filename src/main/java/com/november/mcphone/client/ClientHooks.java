@@ -17,8 +17,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * 客户端事件钩子：按键（打开手机/相机快门）、相机模式 tick 与 HUD 取景框。
  *
- * <p>常显 HUD 的渲染已迁移到 Qz 的 ClientHudService 宿主（宿主自己在 RenderGameOverlayEvent
- * 上绘制），本类因此不再转发 HUD 渲染、也不再因为 HUD 而注册 Forge 总线。</p>
+ * <p>常显 HUD 的渲染与交互都归 {@code PhoneHud} 自己（它在 Forge overlay 事件里自绘，
+ * 见 PhoneHud 类注释里「为什么不能用 Qz 通用 HUD 宿主」）。本类只负责按键：打开手机 /
+ * 快门 / HUD 开关。</p>
  */
 public final class ClientHooks {
 
@@ -85,8 +86,7 @@ public final class ClientHooks {
         cpw.mods.fml.common.FMLCommonHandler.instance()
             .bus()
             .register(new ClientHooks());
-        // 常显 HUD 渲染由 Qz ClientHudService 宿主负责（RenderGameOverlayEvent 是 Qz 的
-        // UiHudRenderListener 在处理），本类不再需要挂 Forge 总线；相机取景框仍挂。
+        // 相机取景框挂 Forge 总线；常显 HUD 的 overlay/滚轮总线由 PhoneHud.init() 自己挂。
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new CameraHandler.Overlay());
         com.november.mcphone.client.hud.PhoneHud.init();
     }
@@ -118,7 +118,9 @@ public final class ClientHooks {
         if (keyShutter.isPressed() && cameraMode && mc.currentScreen == null) {
             CameraHandler.pendingCapture = true;
         }
-        if (keyHud.isPressed()) {
+        // 守卫与其他键一致：GUI（含背包/NEI 搜索框，allowUserInput=true）里逐键事件照发，
+        // 缺守卫会在输入字母 g 时反复切 HUD。
+        if (keyHud.isPressed() && mc.currentScreen == null && mc.thePlayer != null) {
             PhoneCanvas.setHudEnabled(!PhoneCanvas.isHudEnabled());
             mc.thePlayer.addChatMessage(new net.minecraft.util.ChatComponentText(
                 StatCollector.translateToLocal(PhoneCanvas.isHudEnabled()
