@@ -71,6 +71,22 @@ public interface IPhoneApp {
     /** 页面型 App 的 Shift+点击快捷动作（如传送的快速绑定）；默认无动作。 */
     default void onShiftActivate(PhoneUi ui) {}
 
+    /**
+     * 每 App 快捷键按下时的打开方式。
+     *
+     * <p>true（页面型 App 默认）：热键先把手机打开并直接进入本 App 页面，与点
+     * 图标同路；false（直达型 App 默认）：热键不打开手机界面，直接调
+     * {@link #onActivate(PhoneUi, boolean)}（shift 固定 false），与点图标同效——
+     * 适合末影箱、传送这类"发出网络包后开原版容器"的 App，先开机再被容器顶掉
+     * 会闪一帧。</p>
+     *
+     * <p>无论哪种取值，热键生效都要求手机在背包（服务端语义与 P 键一致）。
+     * 附属如需覆盖默认行为直接重写本方法。</p>
+     */
+    default boolean opensInsidePhone() {
+        return !isDirectAction();
+    }
+
     /** 页面型 App：构建并返回页面根节点（一次性建树 + runtime 绑定）。 */
     default SceneNode createPage(PhoneUi ui) {
         return null;

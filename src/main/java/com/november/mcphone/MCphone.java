@@ -25,7 +25,12 @@ import cpw.mods.fml.common.registry.GameRegistry;
  */
 @Mod(modid = "mcphone", name = "MCphone", version = Tags.VERSION,
      acceptedMinecraftVersions = "[1.7.10]",
-     dependencies = "required-after:qz_uilib@[4.8,)")
+     // 依赖下限 4.9.0 = 「含液态玻璃 API 的最小已发布版本」（4.8.0 tag 里没有那两个玻璃类，
+     // 设计文档 4.1/4.2 节实测）；且 1.7.10 的 FML 只按 MyMod.class 内联的版本串做范围判定
+     // （与类是否存在无关，4.4 节链条）⇒ 下限必须写 [4.9.0,)，否则装上 4.8.x 会在
+     // FML 加载期直接 MissingModsException。玻璃类型的具体名字只在
+     // client/enhance/PhoneGlass.java 出现（能力隔离桥约定）。
+     dependencies = "required-after:qz_uilib@[4.9.0,)")
 public class MCphone {
 
     public static final String MODID = "mcphone";
@@ -52,6 +57,11 @@ public class MCphone {
     public void init(FMLInitializationEvent event) {
         NetworkHandler.init();
         proxy.initApps();
+        // 商店：登录时同步已购 App 给客户端。PlayerLoggedInEvent 由 FML post 到
+        // FMLCommonHandler.bus()（1.7.10 双总线未合一），注册到 Forge 总线永不触发。
+        cpw.mods.fml.common.FMLCommonHandler.instance()
+            .bus()
+            .register(new com.november.mcphone.store.StoreEvents());
         GameRegistry.addRecipe(
             new ShapedOreRecipe(
                 new ItemStack(ItemPhone.INSTANCE),

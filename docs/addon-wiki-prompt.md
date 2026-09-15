@@ -10,14 +10,14 @@
 ## 一、项目背景（先读）
 
 - 目标平台：**GTNH 2.9.0-beta3**（MC 1.7.10 + Forge 1614 + lwjgl3ify，运行时 Java 17–26）。
-- 手机本体 mod：**MCphone**，工程在 `E:\zcode\mcphone-gtnh`（RetroFuturaGradle 构建链，
-  Java 21+ 语法经 Jabel 编译为 Java 8 字节码，Gradle 9.3.1，代理 127.0.0.1:7897 已写在
-  gradle.properties，手动注册的 JDK 在 `E:\zcode\jdks\`）。
+- 手机本体 mod：**MCphone**（RetroFuturaGradle 构建链，
+  Java 21+ 语法经 Jabel 编译为 Java 8 字节码，Gradle 9.3.1；如本机有代理，
+  写在 gradle.properties；JDK 自行准备 17/21/25 均可）。
 - 附属接入口（SPI）：`src/main/java/com/november/mcphone/api/IPhoneApp.java` +
   `api/PhoneApi.java`，说明文档 `docs/addon-api.md`。App 分两类：
   - **页面型**：`createPage(PhoneUi)` 返回 Qz-UILib 场景树根节点；
   - **直达型**（`isDirectAction()=true`）：点击图标立即执行 `onActivate(ui, shift)`。
-- 实例（测试用）：`C:\Users\陈\AppData\Roaming\PrismLauncher\instances\GT_New_Horizons_2.9.0-beta-3_Java_17-26`，
+- 实例（测试用）：`<Prism 实例目录>/GT_New_Horizons_2.9.0-beta-3_Java_17-26`，
   通过 PrismLauncher 启动，mods 在 `.minecraft\mods\`。
 - UI 框架：Qz-UILib（modId `qz_uilib`，包 `club.heiqi.uilib`），声明式场景树 +
   Signal 响应式；控件 `ui.scene.control.*`（SceneButton/SceneLabel/SceneTextInput/
@@ -34,7 +34,7 @@
 | **WebDisplays 1.7.10**（montoyo/MobiCyp） | 提供游戏内网页大屏（屏幕方块 + 内嵌 Chromium 浏览器） |
 | **MCEF**（WebDisplays 同作者的配套库，内嵌 JCEF Chromium） | WD 的渲染后端，按 WD 对应版本下载 |
 
-- 下载渠道：CurseForge / montoyo.net（网络走代理 `127.0.0.1:7897`）。
+- 下载渠道：CurseForge / montoyo.net（如本机有代理，网络走代理即可）。
   先搜 WebDisplays 的 1.7.10 最新版，再按其"依赖"页找配套 MCEF 版本，不要凭记忆猜版本号。
 - **第一步就是实测前置可用性**：把 WD + MCEF 放进实例 mods，启动游戏、进存档、
   放一块 WD 屏幕方块加载任意网页。若 MCEF 原生库在 Java 17+/lwjgl3ify 下崩溃

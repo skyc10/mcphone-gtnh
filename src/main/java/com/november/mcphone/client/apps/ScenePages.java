@@ -7,6 +7,7 @@ import java.util.List;
 import javax.imageio.ImageIO;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.StatCollector;
 
 import club.heiqi.uilib.ui.image.HostImageSource;
@@ -27,12 +28,15 @@ import club.heiqi.uilib.ui.scene.runtime.MountHandle;
 import com.november.mcphone.api.IPhoneApp;
 import com.november.mcphone.api.PhoneApi;
 import com.november.mcphone.api.PhoneWidgets;
-import com.november.mcphone.client.NotesStore;
 import com.november.mcphone.client.PhoneCanvas;
+import com.november.mcphone.client.AppHotkey;
 import com.november.mcphone.client.PhotoStore;
+import com.november.mcphone.client.enhance.PhoneTheme;
 import com.november.mcphone.client.TimeUtil;
 import com.november.mcphone.client.scene.PhoneUi;
 import com.november.mcphone.core.ItemPhone;
+import com.november.mcphone.feature.notes.Note;
+import com.november.mcphone.feature.notes.NotesClientCache;
 import com.november.mcphone.net.NetworkHandler;
 
 /**
@@ -43,10 +47,37 @@ import com.november.mcphone.net.NetworkHandler;
  */
 public final class ScenePages {
 
-    private static final int COL_TEXT = 0xFFE8EDF2;
-    private static final int COL_MUTED = 0xFF8B98A8;
-    private static final int COL_PANEL = 0x33FFFFFF;
     private static final int COL_BORDER = 0x55FFFFFF;
+
+    /**
+     * 页面卡片/信息行底衬（玻璃令牌；改动前是 {@code COL_PANEL = 0x33FFFFFF} 常量）。
+     *
+     * <p>为什么不再用常量：底色 alpha 与材质档成对（设计文档 §9.2/§9.3），要跟随用户
+     * 档位与「玻璃开关」变化，只能运行期取。取值一律经
+     * {@link com.november.mcphone.client.enhance.PhoneGlass#surface}（本包不直接引用任何
+     * Qz 玻璃类型），关玻璃/Qz 类缺失时自动回中性非玻璃色。</p>
+     */
+    private static int cardSurface() {
+        return com.november.mcphone.client.enhance.PhoneGlass
+            .surface(com.november.mcphone.client.enhance.PhoneGlass.Role.CARD);
+    }
+
+    /** 卡片玻璃态圆角（12；旧值 8px 挂不住液态缘带，见 PhoneGlass.RADIUS_MIN）。 */
+    private static int cardRadius() {
+        return com.november.mcphone.client.enhance.PhoneGlass.cardRadius();
+    }
+
+    /**
+     * 卡片/信息行统一表面：玻璃底色 + 液态倒角 + 建树期挂 backdrop（旧 0x33FFFFFF + 8px 淘汰）。
+     *
+     * <p>只改 PAINT 级属性（底色/圆角/backdrop），不碰布局 ⇒ 不影响任何命中判据。</p>
+     */
+    private static void applyCardSurface(SceneNode node) {
+        node.setCornerRadius(cardRadius());
+        node.setBackgroundColor(cardSurface());
+        com.november.mcphone.client.enhance.PhoneGlass.apply(
+            node, com.november.mcphone.client.enhance.PhoneGlass.Role.CARD);
+    }
 
     private ScenePages() {}
 
@@ -125,9 +156,12 @@ public final class ScenePages {
         page.setCrossAxisAlign(CrossAxisAlign.CENTER);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.clock")));
 
+        // 时段问候（常驻一行；打开手机时的一次性 Toast 问候由 GreetingToast 负责）。
+        page.appendChild(PhoneUi.muted(com.november.mcphone.client.enhance.GreetingToast.bandText()));
+
         SceneNode big = new SceneNode();
         big.setText(PhoneUi.clockSignal().get());
-        big.setTextColor(COL_TEXT);
+        big.setTextColor(PhoneTheme.text());
         big.setFontSize(PhoneUi.fs(56));
         big.setHitTestable(false);
         ui.runtime().bindText(big, PhoneUi.clockSignal());
@@ -135,6 +169,14 @@ public final class ScenePages {
 
         page.appendChild(PhoneUi.muted(
             StatCollector.translateToLocalFormatted("msg.mcphone.world_day", TimeUtil.worldDay())));
+
+        // 游玩时长（服务端权威计时，PlayTimeSync 同步；未同步显示"同步中"）。
+        page.appendChild(infoRow(
+            StatCollector.translateToLocal("msg.mcphone.playtime_session"),
+            com.november.mcphone.client.enhance.PlayTimeClient.formatSession()));
+        page.appendChild(infoRow(
+            StatCollector.translateToLocal("msg.mcphone.playtime_total"),
+            com.november.mcphone.client.enhance.PlayTimeClient.formatTotal()));
         return page;
     }
 
@@ -152,7 +194,15 @@ public final class ScenePages {
             boolean rain = mc.theWorld.isRaining();
             boolean thunder = mc.theWorld.isThundering();
             boolean day = mc.theWorld.isDaytime();
+
+            // 按生物群系判定当地天气（雨/雪/无；无天空维度直接无）+ 建议文案。
+            com.november.mcphone.client.enhance.WeatherAdvisor.Kind kind =
+                com.november.mcphone.client.enhance.WeatherAdvisor.classify(mc.theWorld, x, z);
+
             page.appendChild(infoRow(StatCollector.translateToLocal("label.mcphone.biome"), biome));
+            page.appendChild(infoRow(
+                StatCollector.translateToLocal("label.mcphone.weather"),
+                com.november.mcphone.client.enhance.WeatherAdvisor.name(kind)));
             page.appendChild(infoRow(
                 StatCollector.translateToLocal("label.mcphone.rain"),
                 StatCollector.translateToLocal(rain ? "state.mcphone.yes" : "state.mcphone.no")));
@@ -162,10 +212,21 @@ public final class ScenePages {
             page.appendChild(infoRow(
                 StatCollector.translateToLocal("label.mcphone.daylight"),
                 StatCollector.translateToLocal(day ? "state.mcphone.day" : "state.mcphone.night")));
+
+            page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.advice")));
+            page.appendChild(wrappedMuted(
+                ui, com.november.mcphone.client.enhance.WeatherAdvisor.advice(kind, !day)));
         } else {
             page.appendChild(PhoneUi.muted("§7--"));
         }
         return page;
+    }
+
+    /** 可换行的次要说明文字（setMaxTextWidth 触发 Qz 按宽拆行）。 */
+    private static SceneNode wrappedMuted(PhoneUi ui, String value) {
+        SceneNode n = PhoneUi.muted(value);
+        n.setMaxTextWidth(ui.panelWidth() - 48);
+        return n;
     }
 
     private static SceneNode infoRow(String key, String value) {
@@ -175,12 +236,12 @@ public final class ScenePages {
         row.setGap(8);
         SceneNode k = new SceneNode();
         k.setText(key);
-        k.setTextColor(COL_MUTED);
+        k.setTextColor(PhoneTheme.muted());
         k.setFontSize(PhoneUi.fs(16));
         k.setHitTestable(false);
         SceneNode v = new SceneNode();
         v.setText(value);
-        v.setTextColor(COL_TEXT);
+        v.setTextColor(PhoneTheme.text());
         v.setFontSize(PhoneUi.fs(16));
         v.setHitTestable(false);
         row.appendChild(k);
@@ -189,7 +250,7 @@ public final class ScenePages {
         return row;
     }
 
-    // ===================== 便签 =====================
+    // ===================== 便签（数据源 = 服务端持久化 + 同步缓存，见 feature/notes） =====================
 
     public static SceneNode notesPage(PhoneUi ui) {
         SceneNode page = SceneNode.column();
@@ -208,20 +269,24 @@ public final class ScenePages {
         SceneNode list = scrollColumn(ui);
         list.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.notes")));
         mountPrimaryButton(ui, list, StatCollector.translateToLocal("btn.mcphone.new_note"),
-            () -> showNotesEditor(ui, slot, new NotesStore.Note()));
+            () -> showNotesEditor(ui, slot, new Note()));
 
-        for (NotesStore.Note n : NotesStore.list()) {
-            NotesStore.Note note = n;
+        // 服务端全量同步未到达前显示加载提示，避免被误读为"没有便签"。
+        if (!NotesClientCache.isReceived()) {
+            list.appendChild(PhoneUi.muted(StatCollector
+                .translateToLocal("label.mcphone.notes_syncing")));
+        }
+        for (Note n : NotesClientCache.list()) {
+            Note note = n;
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
             row.setGap(6);
             row.setPadding(6, 6, 6, 6);
-            row.setCornerRadius(6);
-            row.setBackgroundColor(COL_PANEL);
+            applyCardSurface(row);
             SceneNode t = new SceneNode();
             t.setText(n.title.isEmpty() ? "(...)" : n.title);
-            t.setTextColor(COL_TEXT);
+            t.setTextColor(PhoneTheme.text());
             t.setFontSize(PhoneUi.fs(16));
             t.setMaxTextWidth(ui.panelWidth() - 60);
             t.setHitTestable(false);
@@ -229,7 +294,7 @@ public final class ScenePages {
             row.appendChild(spacer());
             SceneNode arrow = new SceneNode();
             arrow.setText("›");
-            arrow.setTextColor(COL_MUTED);
+            arrow.setTextColor(PhoneTheme.muted());
             arrow.setFontSize(PhoneUi.fs(16));
             arrow.setHitTestable(false);
             row.appendChild(arrow);
@@ -239,7 +304,7 @@ public final class ScenePages {
         slot.show(list);
     }
 
-    private static void showNotesEditor(PhoneUi ui, PageSlot slot, NotesStore.Note note) {
+    private static void showNotesEditor(PhoneUi ui, PageSlot slot, Note note) {
         // 受控输入：onChange 必须把值写回 Signal（控件不自己改 value），保存时从 Signal 读。
         Signal<String> titleValue = Signal.create(note.title == null ? "" : note.title);
         Signal<String> bodyValue = Signal.create(note.body == null ? "" : note.body);
@@ -266,7 +331,7 @@ public final class ScenePages {
             club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.create(ui.runtime(),
                 new club.heiqi.uilib.ui.scene.control.SceneTextAreaPrimitive.Props(
                     bodyValue, Signal.create(Boolean.TRUE), Signal.create(Boolean.FALSE),
-                    StatCollector.translateToLocal("label.mcphone.note_body"), 20000,
+                    StatCollector.translateToLocal("label.mcphone.note_body"), Note.MAX_BODY,
                     0xFF6FB2E8, 0xFFE8EDF2, 0xFF8B98A8, 0xFF666666, bodyValue::set));
         SceneNode area = taRes.root();
         area.setFillParentWidth(true);
@@ -275,8 +340,11 @@ public final class ScenePages {
         area.setBorderWidth(1);
         area.setBorderColor(COL_BORDER);
         area.setCornerRadius(8);
+        // 【刻意保留实心，不上玻璃】长文本编辑区（设计文档 §9.3）：理由见下方 viewport 注释。
         area.setBackgroundColor(0xFF1A2028);
         taRes.viewport().setPreferredHeight(260);
+        // 【刻意保留实心】TextArea 视口：①Qz 的字形绘制固定 16px（踩坑 #5），玻璃折射缘带会与
+        // 文本边缘互相干扰、可读性下降；②长文本可读性优先于观感 ⇒ 保留实心底衬，不挂 backdrop。
         taRes.viewport().setBackgroundColor(0xFF101418);
         // 点击文本框任意位置即可编辑（不用精确点到文字上）；打开时自动聚焦。
         ui.runtime().on(area, club.heiqi.uilib.ui.scene.input.SceneEventType.POINTER_DOWN,
@@ -289,15 +357,23 @@ public final class ScenePages {
         actions.setFillParentWidth(true);
         actions.setGap(8);
         mountPrimaryButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.save"), () -> {
-            note.title = titleValue.get();
-            note.body = bodyValue.get();
-            NotesStore.save(note);
+            // 保存走服务端（随存档持久化）；服务端回推 NoteSync 后列表自动刷新。
+            NetworkHandler.sendToServer(new NetworkHandler.NoteSave(
+                NetworkHandler.NoteSave.ACTION_SAVE, note.id, titleValue.get(), bodyValue.get()));
             ui.toast(StatCollector.translateToLocal("msg.mcphone.saved"));
             showNotesList(ui, slot);
         });
         mountButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.delete"), () -> {
-            NotesStore.delete(note);
+            NetworkHandler.sendToServer(new NetworkHandler.NoteSave(
+                NetworkHandler.NoteSave.ACTION_DELETE, note.id, "", ""));
             showNotesList(ui, slot);
+        });
+        mountButton(ui, actions, StatCollector.translateToLocal("btn.mcphone.print_book"), () -> {
+            if (note.isNew()) {
+                ui.toast(StatCollector.translateToLocal("msg.mcphone.note_save_first"));
+                return;
+            }
+            NetworkHandler.sendToServer(new NetworkHandler.NotePrint(note.id));
         });
         editor.appendChild(actions);
         slot.show(editor);
@@ -336,8 +412,7 @@ public final class ScenePages {
             card.setFillParentWidth(true);
             card.setGap(4);
             card.setPadding(8, 8, 8, 8);
-            card.setCornerRadius(8);
-            card.setBackgroundColor(COL_PANEL);
+            applyCardSurface(card);
 
             SceneNode nameRow = SceneNode.row();
             nameRow.setFillParentWidth(true);
@@ -345,14 +420,14 @@ public final class ScenePages {
             nameRow.setGap(6);
             SceneNode name = new SceneNode();
             name.setText(w.name);
-            name.setTextColor(COL_TEXT);
+            name.setTextColor(PhoneTheme.text());
             name.setFontSize(PhoneUi.fs(16));
             name.setHitTestable(false);
             nameRow.appendChild(name);
             nameRow.appendChild(spacer());
             SceneNode dim = new SceneNode();
             dim.setText("D" + w.dim);
-            dim.setTextColor(COL_MUTED);
+            dim.setTextColor(PhoneTheme.muted());
             dim.setFontSize(PhoneUi.fs(12));
             dim.setHitTestable(false);
             nameRow.appendChild(dim);
@@ -360,7 +435,7 @@ public final class ScenePages {
 
             SceneNode coords = new SceneNode();
             coords.setText(String.format("%.0f, %.0f, %.0f", w.x, w.y, w.z));
-            coords.setTextColor(COL_MUTED);
+            coords.setTextColor(PhoneTheme.muted());
             coords.setFontSize(PhoneUi.fs(12));
             coords.setHitTestable(false);
             card.appendChild(coords);
@@ -456,6 +531,9 @@ public final class ScenePages {
         node.setPreferredWidth(w);
         node.setPreferredHeight(h);
         node.setCornerRadius(8);
+        // 【刻意保留实心】缩略图底衬（设计文档 §9.4 图片缩略图底衬）：图源不透明时它本就被
+        // 图片完全覆盖（IMAGE 命令晚于 BACKGROUND，ScenePaintEngine.java:417-470），图源缺失
+        // 时它承担"中性底"职责 ⇒ 保留 0xFF101418，不上玻璃（否则缺图时会透出世界背景干扰识别）。
         node.setBackgroundColor(0xFF101418);
         node.setBorderWidth(1);
         node.setBorderColor(COL_BORDER);
@@ -482,6 +560,7 @@ public final class ScenePages {
         image.setPreferredWidth(ui.panelWidth() - 24);
         image.setPreferredHeight((int) ((ui.panelWidth() - 24) * 0.75));
         image.setCornerRadius(10);
+        // 【刻意保留实心】图片查看底衬（§9.4）：图片需要中性背景，且图源铺满时本就被覆盖。
         image.setBackgroundColor(0xFF000000);
         image.setClipChildren(true);
         image.setMainAxisAlign(MainAxisAlign.CENTER);
@@ -514,6 +593,12 @@ public final class ScenePages {
         });
         view.appendChild(actions);
         slot.show(view);
+    }
+
+    // ===================== 聊天（实现放 feature/chat/client/ChatUi） =====================
+
+    public static SceneNode chatPage(PhoneUi ui) {
+        return com.november.mcphone.feature.chat.client.ChatUi.friendsPage(ui);
     }
 
     // ===================== 设置 =====================
@@ -586,13 +671,261 @@ public final class ScenePages {
                     }
                 })));
 
+        // ===================== 液态玻璃（Liquid Glass） =====================
+        // 复用既有 "label.mcphone.display"（「显示」）作为分组标题——本任务 inScope 是三个
+        // .java 文件，不改 lang/*.lang，故不新增 i18n 键；档位/强度行用自绘 chip 与既有
+        // state.mcphone.on/off 文案。
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.display")));
+        page.appendChild(glassToggleRow(ui));
+        page.appendChild(PhoneUi.muted(glassTierLegend()));
+        page.appendChild(glassTierRow(ui));
+
+        page.appendChild(PhoneUi.muted(glassLensLabel()));
+        // 受控滑条：onChange 只写回 Signal；**提交（松手）时**才落盘 + 经 PhoneUi.post 延迟生效
+        // （拖动中重建整树会杀死拖动手势，踩坑 #4）。
+        Signal<Double> lensStrength = Signal.create((double) PhoneCanvas.getGlassLensStrength());
+        ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
+            new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
+                lensStrength, Signal.create(Boolean.TRUE), 0.0, 1.0, 0.05,
+                (v, committing) -> {
+                    lensStrength.set(v);
+                    if (committing) {
+                        PhoneCanvas.setGlassLensStrength((float) v);
+                        PhoneUi.postAction(PhoneUi::refreshGlassShell);
+                    }
+                })));
+        page.appendChild(PhoneUi.muted(glassHint()));
+
+        // ===================== 字体颜色 =====================
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.font_color")));
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.font_color_hint")));
+        page.appendChild(fontColorRow(ui));
+
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.wallpaper")));
+        page.appendChild(wallpaperPresetGrid(ui));
         mountPrimaryButton(ui, page, StatCollector.translateToLocal("btn.mcphone.reset_wallpaper"), () -> {
             PhotoStore.clearWallpaper();
             PhoneUi.refreshWallpaper();
             ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_reset"));
         });
+
+        // ===================== 商店模式 =====================
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.store_mode")));
+        page.appendChild(storeModeRow(ui));
+        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.store_hint")));
+        // 渲染自检提示：本会话内有 App 泄漏过 GL 裁剪时告知玩家（fail-safe 已修复）。
+        if (PhoneCanvas.isClipped()) {
+            page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.clipped_hint")));
+        }
         return page;
+    }
+
+    // ===================== 液态玻璃设置行（设置页） =====================
+
+    /**
+     * 运行时本地化文案选取（zh / 其他）。
+     *
+     * <p><b>为什么写在代码里</b>：本任务 inScope 只有三个 .java 文件（不含
+     * {@code src/main/resources/**lang/*.lang}），故不新增 i18n 键。同文件既有代码本来就用
+     * 中文字面量（应用字形 {@code "钟"/"箱"}），这里沿用同一处理，并在交付说明里登记
+     * 「下一轮把这几条挪进 lang 文件」。</p>
+     */
+    private static String gt(String zh, String en) {
+        try {
+            // 1.7.10 的 Minecraft 没有 getLanguage()（编译期实测），语言代码在 GameSettings.language。
+            String code = net.minecraft.client.Minecraft.getMinecraft().gameSettings.language;
+            return (code != null && code.toLowerCase(java.util.Locale.ROOT).startsWith("zh"))
+                ? zh : en;
+        } catch (Throwable ignored) {
+            return zh;
+        }
+    }
+
+    /** 玻璃总开关行（整行点击切换；整行样式与商店模式开关行一致）。 */
+    private static SceneNode glassToggleRow(PhoneUi ui) {
+        boolean on = PhoneCanvas.isGlassEnabled();
+        SceneNode row = infoRow(gt("液态玻璃", "Liquid Glass"),
+            StatCollector.translateToLocal(on ? "state.mcphone.on" : "state.mcphone.off"));
+        row.setPadding(8, 8, 8, 8);
+        applyCardSurface(row);
+        // 回调里只落盘 + 延迟生效：PhoneUi.refreshGlassShell 内部整树重建，
+        // 绝不能在输入路由迭代中做（踩坑 #3）。
+        ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) ->
+            PhoneUi.postAction(() -> {
+                PhoneCanvas.setGlassEnabled(!PhoneCanvas.isGlassEnabled());
+                PhoneUi.refreshGlassShell();
+            }));
+        return row;
+    }
+
+    /** 当前生效档位说明（AUTO 会按实际渲染路径解析成 THIN/ULTRA_THIN）。 */
+    private static String glassTierLegend() {
+        return gt("玻璃档位（自动=按渲染路径）", "Glass tier (auto = by render path)");
+    }
+
+    /** 档位 chip 行（自绘，字号可控）：自动 / 薄 / 极薄 / 常规 / 厚。 */
+    private static SceneNode glassTierRow(PhoneUi ui) {
+        SceneNode row = SceneNode.row();
+        row.setFillParentWidth(true);
+        row.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        row.setGap(6);
+        com.november.mcphone.client.enhance.PhoneGlass.Tier current = PhoneCanvas.glassTier();
+        for (com.november.mcphone.client.enhance.PhoneGlass.Tier tier
+                : com.november.mcphone.client.enhance.PhoneGlass.Tier.values()) {
+            row.appendChild(glassTierChip(ui, tier, tier == current));
+        }
+        return row;
+    }
+
+    private static SceneNode glassTierChip(PhoneUi ui,
+                                           com.november.mcphone.client.enhance.PhoneGlass.Tier tier,
+                                           boolean selected) {
+        SceneNode chip = SceneNode.row();
+        chip.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        chip.setPadding(8, 4, 8, 4);
+        chip.setMainAxisAlign(MainAxisAlign.CENTER);
+        chip.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        // 玻璃令牌：未选中的 chip 是玻璃面（CARD 档），选中的用 accent 描边（"accent 不上玻璃"，
+        // 这里 accent 只落在 border 上，底色仍是玻璃令牌 ⇒ 不破坏分层）。
+        applyCardSurface(chip);
+        chip.setBorderWidth(selected ? 2 : 1);
+        chip.setBorderColor(selected ? 0xFF6FB2E8 : COL_BORDER);
+        SceneNode label = new SceneNode();
+        label.setText(tierLabel(tier));
+        label.setTextColor(PhoneTheme.text());
+        label.setFontSize(PhoneUi.fs(13));
+        label.setHitTestable(false);
+        chip.appendChild(label);
+        if (!selected) {
+            final int ordinal = tier.ordinal();
+            ui.runtime().on(chip, SceneEventType.CLICK, (e, ctx) ->
+                PhoneUi.postAction(() -> {
+                    PhoneCanvas.setGlassTier(ordinal);
+                    PhoneUi.refreshGlassShell();
+                }));
+        }
+        return chip;
+    }
+
+    private static String tierLabel(com.november.mcphone.client.enhance.PhoneGlass.Tier tier) {
+        switch (tier) {
+            case ULTRA_THIN:
+                return gt("极薄", "Ultra");
+            case THIN:
+                return gt("薄", "Thin");
+            case REGULAR:
+                return gt("常规", "Regular");
+            case THICK:
+                return gt("厚", "Thick");
+            case AUTO:
+            default:
+                return gt("自动", "Auto");
+        }
+    }
+
+    private static String glassLensLabel() {
+        return gt("玻璃强度（0–100%）", "Glass strength (0-100%)");
+    }
+
+    private static String glassHint() {
+        return gt("玻璃是首选风格：关闭后界面回落为中性浅底配色（不保留旧深灰方案）。",
+            "Glass is the default style; turning it off falls back to a neutral light palette.");
+    }
+
+    /** 商店模式开关行（整行点击切换，样式与应用管理页的开关行一致）。 */
+    private static SceneNode storeModeRow(PhoneUi ui) {
+        boolean on = PhoneCanvas.isStoreMode();
+        SceneNode row = infoRow(
+            StatCollector.translateToLocal("label.mcphone.store_mode"),
+            StatCollector.translateToLocal(on ? "state.mcphone.on" : "state.mcphone.off"));
+        row.setPadding(8, 8, 8, 8);
+        applyCardSurface(row);
+        ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+            PhoneCanvas.setStoreMode(!PhoneCanvas.isStoreMode());
+            ui.rebuildPage();
+        }));
+        return row;
+    }
+
+    /** 字体颜色预设色块行：一行排开所有预设，当前项描白边，点击即应用并重建页面。 */
+    private static SceneNode fontColorRow(PhoneUi ui) {
+        SceneNode row = SceneNode.row();
+        row.setFillParentWidth(true);
+        row.setGap(8);
+        int current = com.november.mcphone.client.enhance.PhoneTheme.currentPreset();
+        for (int i = 0; i < com.november.mcphone.client.enhance.PhoneTheme.presetCount(); i++) {
+            final int index = i;
+            SceneNode swatch = SceneNode.row();
+            swatch.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+            swatch.setPreferredWidth(34);
+            swatch.setPreferredHeight(34);
+            swatch.setCornerRadius(8);
+            swatch.setBackgroundColor(com.november.mcphone.client.enhance.PhoneTheme.presetText(i));
+            swatch.setBorderWidth(index == current ? 3 : 1);
+            swatch.setBorderColor(index == current ? 0xFFFFFFFF : COL_BORDER);
+            ui.runtime().on(swatch, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+                com.november.mcphone.client.enhance.PhoneTheme.setPreset(index);
+                com.november.mcphone.client.enhance.PhoneTheme.refreshTheme();
+            }));
+            row.appendChild(swatch);
+        }
+        return row;
+    }
+
+    /** 预设壁纸网格（3 列色块缩略图）：点击生成渐变并写入 wallpaper.png，立即生效。 */
+    private static SceneNode wallpaperPresetGrid(PhoneUi ui) {
+        SceneNode grid = SceneNode.column();
+        grid.setFillParentWidth(true);
+        grid.setGap(8);
+        int perRow = 3;
+        int cellW = (ui.panelWidth() - 24 - (perRow - 1) * 8) / perRow;
+        for (int i = 0; i < com.november.mcphone.client.enhance.WallpaperPresets.count(); i += perRow) {
+            SceneNode row = SceneNode.row();
+            row.setFillParentWidth(true);
+            row.setGap(8);
+            for (int j = 0; j < perRow && i + j < com.november.mcphone.client.enhance.WallpaperPresets.count(); j++) {
+                row.appendChild(wallpaperPresetCell(ui, i + j, cellW));
+            }
+            grid.appendChild(row);
+        }
+        return grid;
+    }
+
+    private static SceneNode wallpaperPresetCell(PhoneUi ui, int index, int cellW) {
+        com.november.mcphone.client.enhance.WallpaperPresets.Preset preset =
+            com.november.mcphone.client.enhance.WallpaperPresets.get(index);
+        SceneNode cell = SceneNode.column();
+        cell.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        cell.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        cell.setGap(4);
+
+        SceneNode swatch = SceneNode.row();
+        swatch.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        swatch.setPreferredWidth(cellW);
+        swatch.setPreferredHeight(cellW * 16 / 9);
+        swatch.setCornerRadius(8);
+        swatch.setBackgroundColor(preset.swatchColor());
+        swatch.setBorderWidth(1);
+        swatch.setBorderColor(COL_BORDER);
+        swatch.setClipChildren(true);
+        ui.runtime().on(swatch, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+            if (com.november.mcphone.client.enhance.WallpaperPresets.apply(index)) {
+                ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_set"));
+            } else {
+                ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_fail"));
+            }
+        }));
+        cell.appendChild(swatch);
+
+        SceneNode label = new SceneNode();
+        label.setText(StatCollector.translateToLocal(preset.nameKey));
+        label.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.muted());
+        label.setFontSize(PhoneUi.fs(12));
+        label.setMaxTextWidth(cellW);
+        label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
+        label.setHitTestable(false);
+        cell.appendChild(label);
+        return cell;
     }
 
     // ===================== 应用管理 =====================
@@ -603,41 +936,158 @@ public final class ScenePages {
 
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_hint")));
         page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.appmgr_order_hint")));
+        // 商店模式：购买入口已移交应用商店，本页只管启用/停用；关闭时与旧版完全一致。
+        boolean store = com.november.mcphone.client.StoreClient.isEnabled();
+        if (store) {
+            page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.store_page_hint")));
+        }
+        // 快捷键捕获态横幅：下一次按键（任意行点"键"后）将绑定为该 App 的热键。
+        if (PhoneUi.hotkeyCaptureTarget != null) {
+            SceneNode cap = new SceneNode();
+            cap.setText(StatCollector.translateToLocalFormatted(
+                "msg.mcphone.hotkey_capturing", PhoneUi.hotkeyCaptureTarget));
+            cap.setTextColor(0xFF9CE89C);
+            cap.setFontSize(PhoneUi.fs(14));
+            cap.setHitTestable(false);
+            page.appendChild(cap);
+        }
         java.util.List<IPhoneApp> ordered = PhoneApi.orderedApps();
+        boolean capturing = PhoneUi.hotkeyCaptureTarget != null;
         for (int appIndex = 0; appIndex < ordered.size(); appIndex++) {
             IPhoneApp app = ordered.get(appIndex);
             final boolean first = appIndex == 0;
             final boolean last = appIndex == ordered.size() - 1;
             final boolean enabled = PhoneCanvas.isAppEnabled(app.id());
+            boolean system = store && isSystemApp(app.id());
             SceneNode row = SceneNode.row();
             row.setFillParentWidth(true);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
             row.setGap(8);
             row.setPadding(8, 8, 8, 8);
-            row.setCornerRadius(8);
-            row.setBackgroundColor(COL_PANEL);
+            applyCardSurface(row);
             SceneNode label = new SceneNode();
             label.setText(app.displayName() + "  (" + app.id() + ")");
-            label.setTextColor(COL_TEXT);
+            label.setTextColor(PhoneTheme.text());
             label.setFontSize(PhoneUi.fs(15));
             label.setHitTestable(false);
             row.appendChild(label);
             row.appendChild(spacer());
             SceneNode state = new SceneNode();
-            state.setText(StatCollector.translateToLocal(enabled ? "state.mcphone.on" : "state.mcphone.off"));
-            state.setTextColor(enabled ? 0xFF9CE89C : 0xFFE0A0A0);
+            if (system) {
+                // 商店模式下系统 App 不可卸载。
+                state.setText(StatCollector.translateToLocal("state.mcphone.system"));
+                state.setTextColor(PhoneTheme.muted());
+            } else {
+                state.setText(StatCollector.translateToLocal(enabled ? "state.mcphone.on" : "state.mcphone.off"));
+                state.setTextColor(enabled ? 0xFF9CE89C : 0xFFE0A0A0);
+            }
             state.setFontSize(PhoneUi.fs(14));
             state.setHitTestable(false);
             row.appendChild(state);
             row.appendChild(orderButton(ui, app.id(), "↑", first ? null : -1));
             row.appendChild(orderButton(ui, app.id(), "↓", last ? null : 1));
-            // 整行可点击切换；↑/↓ 按钮内部 stopPropagation，不会误触开关。
-            ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
-                PhoneCanvas.setAppEnabled(app.id(), !PhoneCanvas.isAppEnabled(app.id()));
-                ui.rebuildPage();
-            }));
+            row.appendChild(hotkeyButton(ui, app.id(), capturing));
+            if (!system) {
+                // 整行可点击切换启用/停用；
+                // ↑/↓ 按钮内部 stopPropagation，不会误触开关。
+                ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+                    PhoneCanvas.setAppEnabled(app.id(), !PhoneCanvas.isAppEnabled(app.id()));
+                    ui.rebuildPage();
+                }));
+            }
             page.appendChild(row);
         }
+        return page;
+    }
+
+    /** 系统 App（设置/应用管理）：商店模式下不可卸载。 */
+    private static boolean isSystemApp(String appId) {
+        return "settings".equals(appId) || "appmgr".equals(appId);
+    }
+
+    // ===================== 应用商店 =====================
+
+    /**
+     * 独立商店页：仅商店模式开启时，列出「付费且未购」的内建 App（已购/免费的
+     * 不出现——它们直接在主屏）。购买走服务端扣物校验，成功回包 UnlockSync
+     * 触发 {@link PhoneUi#onStoreSync()} 重建本页，无需本地刷新逻辑。
+     */
+    public static SceneNode storePage(PhoneUi ui) {
+        SceneNode page = scrollColumn(ui);
+        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.store")));
+
+        if (!com.november.mcphone.client.StoreClient.isEnabled()) {
+            page.appendChild(PhoneUi.muted(
+                StatCollector.translateToLocal("msg.mcphone.store_closed_hint")));
+            return page;
+        }
+
+        java.util.List<IPhoneApp> paid = new java.util.ArrayList<>();
+        for (IPhoneApp app : PhoneApi.orderedApps()) {
+            if (com.november.mcphone.client.StoreClient.needsPurchase(app)) paid.add(app);
+        }
+        if (paid.isEmpty()) {
+            page.appendChild(PhoneUi.muted(
+                StatCollector.translateToLocal("msg.mcphone.store_empty")));
+        }
+        for (int i = 0; i < paid.size(); i++) {
+            final IPhoneApp app = paid.get(i);
+            SceneNode row = SceneNode.row();
+            row.setFillParentWidth(true);
+            row.setCrossAxisAlign(CrossAxisAlign.CENTER);
+            row.setGap(8);
+            row.setPadding(8, 8, 8, 8);
+            applyCardSurface(row);
+            row.setBorderWidth(1);
+            row.setBorderColor(COL_BORDER);
+            // 图标：与主屏同源（纹理 > 物品 > 字形），小号底板。
+            SceneNode iconBox = SceneNode.row();
+            iconBox.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+            iconBox.setPreferredWidth(24);
+            iconBox.setPreferredHeight(24);
+            iconBox.setCornerRadius(6);
+            iconBox.setBackgroundColor(app.iconColor());
+            iconBox.setBorderWidth(1);
+            iconBox.setBorderColor(0x2EFFFFFF);
+            iconBox.setMainAxisAlign(MainAxisAlign.CENTER);
+            iconBox.setCrossAxisAlign(CrossAxisAlign.CENTER);
+            iconBox.setHitTestable(false);
+            ItemStack item = app.iconItem();
+            String tex = app.iconTexture();
+            if (tex != null) {
+                iconBox.setImageSource(HostImageSource.texture(
+                    new net.minecraft.util.ResourceLocation(tex), 128, 128));
+            } else if (item != null) {
+                iconBox.setImageSource(HostImageSource.itemIcon(item));
+            } else {
+                SceneNode glyph = new SceneNode();
+                glyph.setText(app.iconGlyph());
+                glyph.setTextColor(0xFFFFFFFF);
+                glyph.setFontSize(PhoneUi.fs(13));
+                glyph.setHitTestable(false);
+                iconBox.appendChild(glyph);
+            }
+            row.appendChild(iconBox);
+            SceneNode name = new SceneNode();
+            name.setText(app.displayName());
+            name.setTextColor(PhoneTheme.text());
+            name.setFontSize(PhoneUi.fs(15));
+            name.setHitTestable(false);
+            row.appendChild(name);
+            row.appendChild(spacer());
+            String price = com.november.mcphone.client.StoreClient.priceText(app);
+            SceneNode priceNode = new SceneNode();
+            priceNode.setText(price == null ? "" : price);
+            priceNode.setTextColor(PhoneTheme.muted());
+            priceNode.setFontSize(PhoneUi.fs(14));
+            priceNode.setHitTestable(false);
+            row.appendChild(priceNode);
+            mountPrimaryButton(ui, row, StatCollector.translateToLocal("btn.mcphone.buy"),
+                () -> NetworkHandler.sendToServer(new NetworkHandler.PurchaseApp(app.id())));
+            page.appendChild(row);
+        }
+        page.appendChild(PhoneUi.muted(
+            StatCollector.translateToLocal("msg.mcphone.store_footnote")));
         return page;
     }
 
@@ -657,7 +1107,7 @@ public final class ScenePages {
         btn.setCrossAxisAlign(CrossAxisAlign.CENTER);
         SceneNode g = new SceneNode();
         g.setText(glyph);
-        g.setTextColor(active ? COL_TEXT : COL_MUTED);
+        g.setTextColor(active ? PhoneTheme.text() : PhoneTheme.muted());
         g.setFontSize(PhoneUi.fs(14));
         g.setHitTestable(false);
         btn.appendChild(g);
@@ -684,6 +1134,39 @@ public final class ScenePages {
         } else {
             btn.setHitTestable(false);
         }
+        return btn;
+    }
+
+    /**
+     * 每 App 快捷键按钮：显示当前绑定（如 "CTRL+K"）或 "—"；点击进入捕获态，
+     * 由 PhoneScreen.keyTyped 拦截下一次按键。捕获中该行高亮。stopPropagation
+     * 避免冒泡触发整行的启停切换。
+     */
+    private static SceneNode hotkeyButton(PhoneUi ui, String appId, boolean capturing) {
+        AppHotkey current = AppHotkey.forApp(appId);
+        String label = current != null ? current.displayName() : "—";
+        boolean pending = capturing && appId.equals(PhoneUi.hotkeyCaptureTarget);
+        SceneNode btn = SceneNode.row();
+        btn.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        btn.setPreferredWidth(64);
+        btn.setPreferredHeight(24);
+        btn.setCornerRadius(6);
+        btn.setBackgroundColor(pending ? 0x886FB2E8 : 0x22FFFFFF);
+        btn.setMainAxisAlign(MainAxisAlign.CENTER);
+        btn.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        SceneNode g = new SceneNode();
+        g.setText(pending ? "…" : label);
+        g.setTextColor(pending ? PhoneTheme.text() : PhoneTheme.muted());
+        g.setFontSize(PhoneUi.fs(12));
+        g.setHitTestable(false);
+        btn.appendChild(g);
+        ui.runtime().on(btn, SceneEventType.CLICK, (e, dispatch) -> {
+            dispatch.stopPropagation();
+            PhoneUi.postAction(() -> {
+                PhoneUi.hotkeyCaptureTarget = appId;
+                ui.rebuildPage();
+            });
+        });
         return btn;
     }
 

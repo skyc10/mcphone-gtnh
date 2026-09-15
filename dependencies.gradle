@@ -35,9 +35,11 @@
  */
 dependencies {
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.7.69-GTNH:dev")
-    // Qz-UILib（场景 UI 框架）：编译用仓库内 libs/ 的 dev jar（从 Qz-UILib 源码构建后拷入，
-    // 更新时重新构建并覆盖 libs/qz_uilib-dev.jar）；运行时由实例 mods 里的
-    // qz_uilib-4.8.0.jar 提供（@Mod dependencies 已声明 required-after）。
+    // Qz-UILib（场景 UI 框架）：编译用仓库内 libs/ 的 dev jar（官方 Release 制品，
+    // 现阶段为 qz_uilib-4.9.1-dev.jar；更新时用官方资产覆盖 libs/qz_uilib-dev.jar）；
+    // 运行时由实例 mods 里的 qz_uilib 正式 jar 提供（@Mod dependencies 声明 required-after）。
+    // 注意：版本下限 4.9.0 —— 4.9.0 起才含液态玻璃 UiBackdrop/UiGlassMaterial，
+    // 且 FML 按 mod 版本串（而非类是否存在）判定依赖，4.8.x 会直接加载失败。
     compileOnly(files("libs/qz_uilib-dev.jar"))
     // CI 的 runServer 冒烟测试需要 qz_uilib 真实在运行环境里（@Mod 声明了 required-after）；
     // 只进开发/测试运行，不对外发布（发布后由玩家的 qz_uilib mod 提供）。

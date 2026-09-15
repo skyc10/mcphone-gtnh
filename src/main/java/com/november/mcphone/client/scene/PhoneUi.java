@@ -10,6 +10,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.StatCollector;
 
+import org.lwjgl.opengl.GL11;
+
 import club.heiqi.uilib.ui.image.HostImageSource;
 import club.heiqi.uilib.ui.reactive.Signal;
 import club.heiqi.uilib.ui.scene.control.SceneButton;
@@ -39,16 +41,28 @@ import com.november.mcphone.core.ItemPhone;
  * 逻辑像素导致的"界面大小不正确"），宽高比约 0.56。树结构：</p>
  * <pre>
  * root (COLUMN 居中，透明)
- *   └ panel (COLUMN，圆角面板，壁纸为背景图)
- *       ├ statusBar  (ROW：时钟 + 设备名)
- *       ├ contentSlot (COLUMN，flexGrow=1，单槽页面挂载点)
- *       └ homeBar    (ROW：主页按钮)
+ *   └ panel (COLUMN，圆角面板，液态玻璃 + 壁纸为背景图)
+ *       ├ statusBar  (ROW：时钟 + 设备名，玻璃条)
+ *       ├ contentSlot (COLUMN，显式高度，单槽页面挂载点，玻璃内容底板)
+ *       └ homeBar    (ROW：主页按钮，玻璃导航条)
  * </pre>
+ *
+ * <p><b>液态玻璃（v3）</b>：主面板 / 状态栏 / 内容底板 / 导航条四个面全部经
+ * {@link #glassify} 取 {@code PhoneGlass} 令牌（底色 + backdrop），旧常量
+ * {@code COL_BG 0xF20E1116} / {@code COL_STATUS_BG 0x99000000} / {@code COL_PAGE_BG 0x900E1116}
+ * 已淘汰——它们的 alpha（95% / 60% 纯黑 / 56%）会按层次契约把玻璃盖死
+ * （{@code ScenePaintEngine.java:417-438} 规定 BACKDROP 先于 BACKGROUND 发出）。</p>
  */
 public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcphone.api.PhoneContext {
 
     /** 当前打开的手机实例（时钟 tick 用）；随 dispose 清空。 */
     public static volatile PhoneUi ACTIVE;
+
+    /**
+     * 快捷键捕获态：非 null 时值为待绑定 appId，下一次按键（PhoneScreen.keyTyped
+     * 拦截）作为该 App 的热键。仅 appmgr 页进入/退出。
+     */
+    public static volatile String hotkeyCaptureTarget;
 
     /** 状态栏时钟（世界时间），ClientHooks 每客户端 tick 驱动。 */
     private static final Signal<String> CLOCK = Signal.create("--:--");
@@ -60,13 +74,81 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     /** 壁纸图片源（null = 默认深色底）。相册设为壁纸后更新，立即生效。 */
     private static final Signal<SceneImageSource> WALLPAPER = Signal.create(loadWallpaper());
 
-    private static final int COL_BG = 0xF20E1116;
+    // ===================== 液态玻璃表面令牌（旧配色已淘汰，§9.3/§9.4） =====================
+
     private static final int COL_BORDER = 0xFF39404B;
-    private static final int COL_TEXT = 0xFFE8EDF2;
-    private static final int COL_MUTED = 0xFFB8C4D0;
-    private static final int COL_STATUS_BG = 0x99000000;
-    /** 页面内容底板：半透明深色，保证文字在任何壁纸/世界背景上可读。 */
-    private static final int COL_PAGE_BG = 0x900E1116;
+
+    /**
+     * 面板圆角（改动前 22，不动）。面板是玻璃的<b>倒角载体</b>：&gt;20 才挂得住液态缘带
+     * （docs/qz-liquid-glass-design.md §5.4）。
+     */
+    private static final int PANEL_RADIUS = 22;
+
+    /**
+     * 玻璃表面在 100% 不透明下的最大参考值：{@code 0x8D}（THICK 档面板底色，69%）。
+     *
+     * <p><b>为什么需要它</b>：层次契约是「BACKDROP 在节点 BACKGROUND 之前发出」
+     * （{@code ScenePaintEngine.java:417-438}）⇒ 节点自身底色<b>乘在玻璃之上</b>，
+     * 按 {@code (1-a)} 衰减折射缘带与镜面高光。旧值 {@code COL_BG = 0xF20E1116}（95%）
+     * 与 {@code COL_STATUS_BG = 0x99000000}（60% 纯黑）就是「把玻璃盖死」的元凶，已删除。</p>
+     *
+     * <p>{@link #glassSurface} 是本类<b>唯一</b>产出玻璃面底色的入口，它保证产出的
+     * ARGB alpha 通道 &le; 本参考值（grep 可复核：本文件里 alpha ≥ 0xE6 的字面色值
+     * 只剩 {@code COL_BORDER} 这一处「倒角载体」边框色）。底色数值本身由
+     * {@link com.november.mcphone.client.enhance.PhoneGlass#surface} 按档反解
+     * （与材质档 tint 合成后落在裁定的总遮罩上），本文件不自行造色值。</p>
+     */
+    public static final int GLASS_SURFACE_ALPHA_MAX = 0x8D;
+
+    /** 玻璃面角色与语义名的配对（诊断/评审读数用）。 */
+    private static String roleName(com.november.mcphone.client.enhance.PhoneGlass.Role role) {
+        if (role == null) return "?";
+        switch (role) {
+            case PANEL:
+                return "主面板";
+            case PAGE:
+                return "内容底板";
+            case STATUS:
+                return "状态栏/导航条";
+            case CARD:
+                return "卡片/网格";
+            case BUTTON:
+                return "按钮";
+            case BUTTON_HOVER:
+                return "按钮悬停";
+            default:
+                return "?";
+        }
+    }
+
+    /**
+     * 玻璃面底色：一律经 {@link com.november.mcphone.client.enhance.PhoneGlass#surface} 取，
+     * 并由本方法<b>显式断言</b> alpha 预算——防止后来者把一个 ≥90% 的实心底色再塞回来。
+     *
+     * @throws IllegalStateException 玻璃令牌越预算（几乎必然是新增硬编码色值导致）
+     */
+    private static int glassSurface(com.november.mcphone.client.enhance.PhoneGlass.Role role) {
+        int argb = com.november.mcphone.client.enhance.PhoneGlass.surface(role);
+        int alpha = (argb >>> 24) & 0xFF;
+        if (alpha > GLASS_SURFACE_ALPHA_MAX) {
+            throw new IllegalStateException("玻璃面 " + roleName(role) + " 底色 alpha 0x"
+                + Integer.toHexString(alpha) + " 超过预算 0x"
+                + Integer.toHexString(GLASS_SURFACE_ALPHA_MAX) + "：会盖死玻璃（层次契约）");
+        }
+        return argb;
+    }
+
+    /**
+     * 玻璃面挂载：底色 + backdrop 一次到位（建树期调用一次）。
+     *
+     * <p>开关关闭 / Qz 玻璃类缺失时 {@code PhoneGlass.surface} 自动回中性非玻璃底色，
+     * {@code apply} 静默失败 ⇒ 观感是「无玻璃的中性面板」，不保留旧深灰方案。</p>
+     */
+    private static void glassify(SceneNode node, com.november.mcphone.client.enhance.PhoneGlass.Role role) {
+        if (node == null) return;
+        node.setBackgroundColor(glassSurface(role));
+        com.november.mcphone.client.enhance.PhoneGlass.apply(node, role);
+    }
 
     private static final float BASE_PANEL_HEIGHT = 0.62f;
 
@@ -87,11 +169,25 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     private int panelH;
 
     public PhoneUi(ItemStack phoneStack) {
+        this(phoneStack, 0, 0);
+    }
+
+    /**
+     * 外部宿主（常显 HUD）用：显式给定面板逻辑尺寸构建，外壳/主页网格/文本
+     * 宽度全部一次建对。先按全屏尺寸构建再缩小（旧 setPanelSize 路径）会让
+     * 大尺寸的网格单元与文本残留，溢出被面板裁剪（HUD 只显示一半的根因）。
+     */
+    public PhoneUi(ItemStack phoneStack, int hudPanelW, int hudPanelH) {
         super(new LwjglInputSource(new LwjglStateReader()));
         runtime.__enableMotion();
         this.phone = phoneStack;
         clientWaypoints = new java.util.ArrayList<>(ItemPhone.getWaypoints(phoneStack));
-        applyPanelSize();
+        if (hudPanelW > 0 && hudPanelH > 0) {
+            panelW = clamp(hudPanelW, 200, 900);
+            panelH = clamp(hudPanelH, 320, 1400);
+        } else {
+            applyPanelSize();
+        }
         buildShell();
         buildHomeGrid();
         ACTIVE = this;
@@ -152,7 +248,6 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         });
     }
 
-    /** 重建当前页（主页或当前 App），旧 MountHandle 一并回收。 */
     /** 重建当前页（主页或当前 App），旧 MountHandle 一并回收。 */
     public void rebuildPage() {
         String id = currentPageId;
@@ -220,11 +315,53 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         return Math.max(100, panelH - statusH - homeH);
     }
 
+    /** 面板高度占屏比基准（HUD 等外部宿主按屏换算面板尺寸用）。 */
+    public static float basePanelHeight() {
+        return BASE_PANEL_HEIGHT;
+    }
+
+    /**
+     * 外部宿主（常显 HUD）设置面板逻辑尺寸：不改全局 uiScalePercent，
+     * 重写面板 preferred 尺寸并联动内容槽与主页网格（网格单元/文本宽度
+     * 均在构建时按面板尺寸定值，必须一并重建，否则溢出被面板裁剪）。
+     */
+    public void setPanelSize(int w, int h) {
+        panelW = clamp(w, 200, 900);
+        panelH = clamp(h, 320, 1400);
+        panel.setPreferredWidth(panelW);
+        panel.setPreferredHeight(panelH);
+        contentSlot.setPreferredHeight(contentHeight());
+        if (currentPageId == null) {
+            rebuildPage();
+        } else {
+            openApp(currentPageId);
+        }
+    }
+
     public ItemStack phoneStack() {
         return phone;
     }
 
     // ===================== 骨架 =====================
+
+    /** 主面板 = 液态玻璃正典面（DARK_THIN / blur 8 / lens 0.5）。 */
+    private void buildPanel() {
+        panel = SceneNode.column();
+        panel.setPreferredWidth(panelW);
+        panel.setPreferredHeight(panelH);
+        panel.setCornerRadius(PANEL_RADIUS);
+        // 玻璃 + 配套底色（旧 COL_BG 0xF20E1116 = 95% 会把玻璃整个盖死，已淘汰）。
+        glassify(panel, com.november.mcphone.client.enhance.PhoneGlass.Role.PANEL);
+        panel.setBorderWidth(1);
+        panel.setBorderColor(COL_BORDER);
+        panel.setClipChildren(true);
+        // 壁纸作为面板背景图铺满；相册设壁纸后经 bind 即时刷新。
+        // 注：BACKGROUND 与 IMAGE 都晚于 BACKDROP（ScenePaintEngine.java:417-470）⇒
+        // 壁纸不透明时玻璃只在"无壁纸/壁纸透明处"可见（设计文档 §9.3 已裁定保持现状）。
+        SceneImageSource wp = WALLPAPER.get();
+        if (wp != null) panel.setImageSource(wp);
+        runtime.bind(WALLPAPER, panel::setImageSource);
+    }
 
     private void buildShell() {
         root = SceneNode.column();
@@ -233,29 +370,42 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         root.setCrossAxisAlign(CrossAxisAlign.CENTER);
         root.setMainAxisAlign(MainAxisAlign.CENTER);
 
-        panel = SceneNode.column();
-        panel.setPreferredWidth(panelW);
-        panel.setPreferredHeight(panelH);
-        panel.setCornerRadius(22);
-        panel.setBackgroundColor(COL_BG);
-        panel.setBorderWidth(1);
-        panel.setBorderColor(COL_BORDER);
-        panel.setClipChildren(true);
-        // 壁纸作为面板背景图铺满；相册设壁纸后经 bind 即时刷新。
-        SceneImageSource wp = WALLPAPER.get();
-        if (wp != null) panel.setImageSource(wp);
-        runtime.bind(WALLPAPER, panel::setImageSource);
-        root.appendChild(panel);
+        // 整壳重建（不依赖任何「清理子节点」的隐藏语义）：新建面板 + 新建状态栏/内容槽/导航条
+        // 并挂到新 root。宿主每帧经 getRoot() 取树（AbstractSceneHostWidget.java:117），
+        // 换 root 即为原子替换。
+        rebuildShellTree();
+    }
 
+    /**
+     * 重建整棵外壳树（新建面板 + 状态栏 + 内容槽 + 导航条并挂到 {@link #root}）。
+     *
+     * <p>不做「就地清子节点」：Qz 的 {@code SceneNode} 不提供 disposeChildren，
+     * 而挂载/绑定句柄都挂在 runtime 上；整树替换是唯一不需要猜清理语义的做法
+     * （旧树随新 root 一起被丢弃，不再被 pipeline 遍历/绘制）。</p>
+     *
+     * <p>公开给常显 HUD（{@code PhoneHud}）：改玻璃档/开关/强度后 HUD 用的
+     * {@code HudPhoneUi} 实例也要整壳+当前页重建（review F10）。</p>
+     */
+    public void rebuildShellTree() {
+        buildPanel();
+        root.appendChild(panel);
+        buildStatusBar();
+        buildContentSlot();
+        buildNavigationBar();
+    }
+
+    private void buildStatusBar() {
         SceneNode statusBar = SceneNode.row();
         statusBar.setFillParentWidth(true);
         statusBar.setPadding(12, 12, 12, 8);
         statusBar.setGap(8);
-        statusBar.setBackgroundColor(COL_STATUS_BG);
         statusBar.setHitTestable(false);
+        // 状态栏 = DARK_ULTRA_THIN / blur 6 / lens 0.3，玻璃档底色 0x23（F3 修正后：原 0x25 的
+        // 合成 T=0x46 比裁定 0x40 深 5/255；禁纯黑，§5.5）。
+        glassify(statusBar, com.november.mcphone.client.enhance.PhoneGlass.Role.STATUS);
         SceneNode time = new SceneNode();
         time.setText(CLOCK.get());
-        time.setTextColor(COL_TEXT);
+        time.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         time.setFontSize(fs(16));
         time.setHitTestable(false);
         runtime.bindText(time, CLOCK);
@@ -271,33 +421,65 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             ? StatCollector.translateToLocal("label.mcphone.default_device") : dev);
         SceneNode devName = new SceneNode();
         devName.setText(DEVICE_NAME.get());
-        devName.setTextColor(COL_TEXT);
+        devName.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         devName.setFontSize(fs(14));
         devName.setMaxTextWidth(panelW - 90);
         devName.setHitTestable(false);
         runtime.bindText(devName, DEVICE_NAME);
         statusBar.appendChild(devName);
         panel.appendChild(statusBar);
+    }
 
+    private void buildContentSlot() {
         contentSlot = SceneNode.column();
         contentSlot.setFillParentWidth(true);
         // 高度用显式先验而非 flexGrow：grow 求解器在内容型兄弟旁会早退（间歇性主屏空白/不可滚动的根因）。
         contentSlot.setPreferredHeight(contentHeight());
         contentSlot.setClipChildren(true);
-        // 半透明深色底板：壁纸隐约可见，文字始终可读（浅色背景问题修复）。
-        contentSlot.setBackgroundColor(COL_PAGE_BG);
+        // 内容底板 = DARK_THIN / blur 8 / lens 0.35；旧 0x900E1116（56%）会压暗玻璃且由
+        // 材质 tint（≈15% 黑）+ 玻璃态底色 + 深色文字共同承担"任何壁纸下可读"的职责。
+        glassify(contentSlot, com.november.mcphone.client.enhance.PhoneGlass.Role.PAGE);
         panel.appendChild(contentSlot);
+    }
 
+    private void buildNavigationBar() {
         homeBar = SceneNode.row();
         homeBar.setFillParentWidth(true);
         homeBar.setCrossAxisAlign(CrossAxisAlign.CENTER);
         homeBar.setMainAxisAlign(MainAxisAlign.CENTER);
         homeBar.setPadding(6, 6, 6, 6);
+        // 导航条 = 条状小面，同状态栏档（DARK_ULTRA_THIN，缘带弱，不抢主面板玻璃）。
+        glassify(homeBar, com.november.mcphone.client.enhance.PhoneGlass.Role.STATUS);
         // 高度先验：按钮行高 + 上下 padding + 按钮内边距（与 playground navBar 同口径）。
         homeBar.setPreferredHeight(measurer.lineHeight(fs(16)) + 12
             + 2 * club.heiqi.uilib.ui.scene.paint.SceneChromeTokens.PAD_LG);
         mountButton(homeBar, "⌂", this::backHome);
         panel.appendChild(homeBar);
+    }
+
+    /**
+     * 重新应用玻璃令牌到外壳与当前内容（设置页改玻璃开关/档位/强度后调用）。
+     *
+     * <p><b>为什么整壳重建</b>：底色 alpha 与材质档是成对裁定的（§9.2 材质档↔文字色配对表），
+     * 换档会让「面的厚度 ↔ 文字色 ↔ 圆角」一起变；只改 backdrop 会留下旧底色的双重遮罩。
+     * 因此这里整树重建（{@link #rebuildShellTree}）并重开当前页——按钮/卡片
+     * （{@code PhoneWidgets}）的玻璃态在页面重建时才重算。</p>
+     *
+     * <p><b>调用时机</b>：设置页回调里经 {@link #postAction} 延迟到渲染帧开头
+     * （{@link #flushPendingActions}），此时改树安全（踩坑 #3：输入路由迭代中改树会 CME）。</p>
+     *
+     * <p><b>常显 HUD 也要跟（review F10）</b>：HUD 用的是另一个 {@code HudPhoneUi} 实例
+     * （构造后 {@code PhoneUi.ACTIVE} 被还原为全屏实例，故它不是 ACTIVE）⇒ 这里额外调
+     * {@link com.november.mcphone.client.hud.PhoneHud#onGlassSettingsChanged()}，
+     * 由它在本帧的 post 队列里重建 HUD 实例。没有 HUD / 没有实例时是 no-op。</p>
+     */
+    public static void refreshGlassShell() {
+        PhoneUi ui = ACTIVE;
+        if (ui == null) return;
+        ui.rebuildShellTree();
+        // 主页网格由 rebuildPage() 重建（currentPageId==null 分支），旧 MountHandle 一并回收。
+        ui.rebuildPage();
+        com.november.mcphone.client.hud.PhoneHud.onGlassSettingsChanged();
     }
 
     // ===================== 导航 =====================
@@ -307,10 +489,19 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         return currentPageId == null;
     }
 
-    /** 打开指定 App 页面（页面型 App）。 */
+    /** 指定 App 页面是否正开着（同步到达后按需重建用）。 */
+    public boolean isPageOpen(String id) {
+        return id != null && id.equals(currentPageId);
+    }
+
+    /** 打开指定 App 页面（页面型 App）；商店模式下未购付费 App 拦下并提示。 */
     public void openApp(String id) {
         IPhoneApp app = PhoneApi.byId(id);
         if (app == null || app.isDirectAction()) return;
+        if (!com.november.mcphone.client.StoreClient.isUnlocked(app)) {
+            toastLocked();
+            return;
+        }
         swapPage(app.id(), app.createPage(this));
     }
 
@@ -341,16 +532,30 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     private void buildHomeGrid() {
-        List<IPhoneApp> apps = PhoneApi.orderedVisibleApps();
+        List<IPhoneApp> apps = orderedForHome();
         SceneNode grid = SceneNode.column();
         grid.setFillParentWidth(true);
         grid.setPadding(16);
         grid.setGap(16);
         grid.setScrollable(true);
         grid.setClipChildren(true);
+        // 滚轮必须显式 attach（setScrollable 只声明可滚动；踩坑 #2）。
         club.heiqi.uilib.ui.scene.runtime.SceneScrolls.attach(runtime, grid);
 
-        int perRow = 3;
+        // 主屏图标格底衬：CARD 档玻璃（底色 0x5A/45% 级，远低于 90% ⇒ 不盖死玻璃）。
+        // 刻意不挂到 iconBox：图标盒是 accent 实色（§9.1 总则 3），上玻璃会让小图标失去识别度；
+        // 且玻璃只改 PAINT 属性（`SceneNode.setBackdrop` 与背景同属 paintProps，不参与布局度量）
+        // ⇒ 不影响本页拖拽命中所依赖的几何（见 iconCell 的拖拽判据注释）。
+        glassify(grid, com.november.mcphone.client.enhance.PhoneGlass.Role.CARD);
+
+        // 拖拽排序共享状态：本轮网格的单元格序（扁平，行优先）与手势状态。
+        final java.util.List<SceneNode> cellNodes = new java.util.ArrayList<>();
+        final java.util.List<String> cellIds = new java.util.ArrayList<>();
+        final HomeDrag drag = new HomeDrag();
+
+        // 列数随面板宽度自适应：80px 单元下限 ×3 列 + 间距/内边距 ≈ 360px 起；
+        // HUD 小窗（宽可到 200）放 3 列必然横向溢出被裁，降为 2 列（极窄 1 列）。
+        int perRow = panelW >= 360 ? 3 : panelW >= 210 ? 2 : 1;
         int cellW = Math.max(80, (panelW - 32 - (perRow - 1) * 18) / perRow);
         int box = Math.min(84, cellW - 8);
         for (int i = 0; i < apps.size(); i += perRow) {
@@ -362,18 +567,82 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             // 固定行高先验：图标盒 + 间距 + 标签行高，避免布局求解器把单元格拉伸。
             row.setPreferredHeight(box + 30);
             for (int j = 0; j < perRow && i + j < apps.size(); j++) {
-                row.appendChild(iconCell(apps.get(i + j), cellW, box));
+                row.appendChild(iconCell(apps.get(i + j), cellW, box, cellNodes, cellIds, drag));
             }
             grid.appendChild(row);
         }
         pageMount = runtime.mount(contentSlot, () -> grid);
     }
 
-    private SceneNode iconCell(IPhoneApp app, int cellW, int box) {
+    /**
+     * 主屏展示顺序：按存档隔离的拖拽顺序（HomeGridStore），文件缺失时回落全局顺序表。
+     * 商店模式开启时，未购付费 App 不上主屏（购买入口在应用商店 App）。
+     */
+    private List<IPhoneApp> orderedForHome() {
+        java.util.List<String> known = new java.util.ArrayList<>();
+        for (IPhoneApp app : PhoneApi.orderedVisibleApps()) {
+            if (com.november.mcphone.client.StoreClient.needsPurchase(app)) continue;
+            known.add(app.id());
+        }
+        List<IPhoneApp> out = new java.util.ArrayList<>();
+        for (String id : com.november.mcphone.client.enhance.HomeGridStore.resolveOrder(known)) {
+            IPhoneApp app = PhoneApi.byId(id);
+            if (app != null && PhoneCanvas.isAppEnabled(id)) out.add(app);
+        }
+        return out;
+    }
+
+    /**
+     * 主屏拖拽手势状态（一次网格构建一份）。Qz 没有网格级拖拽控件，这里用
+     * 指针 DOWN/MOVE/UP 自实现最小拖拽：超过阈值激活（激活时捕获指针），
+     * 落点按"指针压在哪个格子"判定，松手插入式重排并按存档持久化。
+     */
+    private static final class HomeDrag {
+
+        /** 超过该位移（像素）才算拖拽，否则视为点击。 */
+        static final int ACTIVATION_THRESHOLD_PX = 10;
+
+        boolean armed;
+        boolean dragging;
+        int pressedIndex = -1;
+        int targetIndex = -1;
+        float pressX;
+        float pressY;
+        /** 拖拽结束后要吞掉的 CLICK 所在格子（避免拖完顺手打开了 App）。 */
+        int suppressedClickIndex = -1;
+    }
+
+    /**
+     * 主屏图标格（drag 手势与命中都在这里）。
+     *
+     * <p><b>玻璃化不影响拖拽命中与阈值</b>（验收项）：</p>
+     * <ul>
+     *   <li><b>不改几何</b>：玻璃是 PAINT 级属性（{@code SceneNode.setBackdrop} 只写
+     *       {@code paintProps.backdrop} 并 {@code markSelfPaint()}，无边距/尺寸语义，
+     *       {@code SceneNode.java:730-740}）⇒ 单元格的 {@code absoluteBox} 与玻璃化前逐像素相同，
+     *       而命中判据完全建立在几何上：开始拖拽用
+     *       {@link HomeDrag#ACTIVATION_THRESHOLD_PX}（10px，平方比较，未改），
+     *       落点用 {@link #dropIndexAt} 对 {@code SceneGeometry.absoluteBox} 做矩形包含判定。</li>
+     *   <li><b>不改可命中性</b>：单元格与图标盒都不调用 {@code setHitTestable(false)}；
+     *       只有 label/glyph 子节点是 {@code hitTestable=false}，与改动前一致。</li>
+     *   <li><b>不改事件路由</b>：指针事件仍挂在 cell（POINTER_DOWN/MOVE/UP/CANCEL/CLICK），
+     *       拖动中 {@code ctx.requestPointerCapture()} 与 {@code cell.setOpacity(0.55f)}
+     *       走的是 opacity（合成级）而非玻璃，两者互不覆盖。</li>
+     *   <li>玻璃底衬挂在网格容器（{@link #buildHomeGrid} 的 CARD 档），不在 iconBox 上：
+     *       iconBox 是 accent 实色（{@code app.iconColor()}），"刻意保留实心"。</li>
+     * </ul>
+     */
+    private SceneNode iconCell(IPhoneApp app, int cellW, int box,
+                               java.util.List<SceneNode> cellNodes,
+                               java.util.List<String> cellIds,
+                               HomeDrag drag) {
+        final int index = cellIds.size();
+        cellIds.add(app.id());
         SceneNode cell = SceneNode.column();
         cell.setWidthSizing(SceneNode.WidthSizing.SHRINK);
         cell.setCrossAxisAlign(CrossAxisAlign.CENTER);
         cell.setGap(6);
+        cellNodes.add(cell);
 
         SceneNode iconBox = SceneNode.row();
         iconBox.setWidthSizing(SceneNode.WidthSizing.SHRINK);
@@ -403,7 +672,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
         SceneNode label = new SceneNode();
         label.setText(app.displayName());
-        label.setTextColor(COL_TEXT);
+        label.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
         label.setFontSize(fs(14));
         label.setMaxTextWidth(cellW);
         label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
@@ -411,13 +680,122 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
 
         cell.appendChild(iconBox);
         cell.appendChild(label);
-        runtime.on(cell, SceneEventType.CLICK, (event, ctx) -> activate(app, event.isShiftDown()));
+        runtime.on(cell, SceneEventType.POINTER_DOWN, (event, ctx) -> {
+            drag.armed = true;
+            drag.dragging = false;
+            drag.pressedIndex = index;
+            drag.targetIndex = index;
+            drag.suppressedClickIndex = -1;
+            drag.pressX = ctx.getRawPointerX();
+            drag.pressY = ctx.getRawPointerY();
+        });
+        runtime.on(cell, SceneEventType.POINTER_MOVE, (event, ctx) -> {
+            if (!drag.armed || drag.pressedIndex != index) return;
+            if (!drag.dragging) {
+                float dx = ctx.getRawPointerX() - drag.pressX;
+                float dy = ctx.getRawPointerY() - drag.pressY;
+                if (dx * dx + dy * dy < HomeDrag.ACTIVATION_THRESHOLD_PX * HomeDrag.ACTIVATION_THRESHOLD_PX) {
+                    return;
+                }
+                drag.dragging = true;
+                drag.suppressedClickIndex = index;
+                cell.setOpacity(0.55f);
+                // 捕获指针：拖出格子后 MOVE/UP 仍派发到本节点（同 Qz SceneDragReorder）。
+                ctx.requestPointerCapture();
+            }
+            drag.targetIndex = dropIndexAt(ctx, cell, cellNodes);
+        });
+        runtime.on(cell, SceneEventType.POINTER_UP, (event, ctx) -> {
+            if (drag.dragging && drag.pressedIndex == index) {
+                cell.setOpacity(1.0f);
+                final int from = drag.pressedIndex;
+                final int to = drag.targetIndex;
+                final java.util.List<String> ids = new java.util.ArrayList<>(cellIds);
+                drag.armed = false;
+                drag.dragging = false;
+                drag.pressedIndex = -1;
+                // 改树（重排+重建网格）延迟到分发结束。
+                postAction(() -> commitHomeDrag(ids, from, to));
+            } else {
+                drag.armed = false;
+            }
+        });
+        runtime.on(cell, SceneEventType.POINTER_CANCEL, (event, ctx) -> {
+            if (drag.pressedIndex == index) cell.setOpacity(1.0f);
+            drag.armed = false;
+            drag.dragging = false;
+            drag.pressedIndex = -1;
+        });
+        runtime.on(cell, SceneEventType.CLICK, (event, ctx) -> {
+            if (drag.suppressedClickIndex == index) {
+                drag.suppressedClickIndex = -1;
+                return;
+            }
+            activate(app, event.isShiftDown());
+        });
         return cell;
     }
+
+    /**
+     * 指针当前压在第几格（扁平下标，行优先）。
+     *
+     * <p>坐标口径：Qz 的 absoluteBox 相对场景根；而本节点的局部指针坐标 +
+     * 本节点的根相对框 = 指针的根相对坐标（同 Qz SceneDragReorder 的换算）。
+     * 命不中任何格子（间隙上）取中心最近的格子。</p>
+     */
+    private static int dropIndexAt(club.heiqi.uilib.ui.scene.input.SceneEventContext ctx,
+                                   SceneNode draggedCell,
+                                   java.util.List<SceneNode> cellNodes) {
+        club.heiqi.uilib.ui.scene.layout.AnchorRect draggedBox =
+            club.heiqi.uilib.ui.scene.layout.SceneGeometry.absoluteBox(draggedCell, 0, 0);
+        int px = draggedBox.getX() + ctx.getLocalPointerX();
+        int py = draggedBox.getY() + ctx.getLocalPointerY();
+        int best = -1;
+        long bestDist = Long.MAX_VALUE;
+        for (int i = 0; i < cellNodes.size(); i++) {
+            club.heiqi.uilib.ui.scene.layout.AnchorRect box =
+                club.heiqi.uilib.ui.scene.layout.SceneGeometry.absoluteBox(cellNodes.get(i), 0, 0);
+            long dist = (long) (px - (box.getX() + box.getWidth() / 2)) * (px - (box.getX() + box.getWidth() / 2))
+                + (long) (py - (box.getY() + box.getHeight() / 2)) * (py - (box.getY() + box.getHeight() / 2));
+            if (px >= box.getX() && px < box.getX() + box.getWidth()
+                    && py >= box.getY() && py < box.getY() + box.getHeight()) {
+                return i;
+            }
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /** 拖拽落定：可见 App 内插入式重排，隐藏 App 保持原相对顺序缀后，按存档持久化。 */
+    private static void commitHomeDrag(java.util.List<String> visibleIds, int from, int to) {
+        List<String> seq = new java.util.ArrayList<>(visibleIds);
+        if (from < 0 || from >= seq.size()) return;
+        int target = Math.max(0, Math.min(to, seq.size() - 1));
+        if (from == target) return;
+        String moved = seq.remove(from);
+        seq.add(target, moved);
+
+        List<String> full = new java.util.ArrayList<>(seq);
+        for (IPhoneApp app : PhoneApi.orderedApps()) {
+            if (!full.contains(app.id())) full.add(app.id());
+        }
+        com.november.mcphone.client.enhance.HomeGridStore.saveOrder(full);
+        PhoneUi ui = ACTIVE;
+        if (ui != null) ui.rebuildPage();
+    }
+
 
     /** 图标点击：直达型立即执行（传送支持 Shift+点击绑定）；页面型 Shift+点击走 onShiftActivate。 */
     private void activate(IPhoneApp app, boolean shift) {
         post(() -> {
+            // 商店模式准入：未购付费内建 App 拦下（附属 App 恒放行，见 StoreClient）。
+            if (!com.november.mcphone.client.StoreClient.isUnlocked(app)) {
+                toastLocked();
+                return;
+            }
             if (app.isDirectAction()) {
                 app.onActivate(this, shift);
             } else if (shift) {
@@ -426,6 +804,10 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
                 openApp(app.id());
             }
         });
+    }
+
+    private void toastLocked() {
+        toast(StatCollector.translateToLocal("msg.mcphone.store_locked"));
     }
 
     // ===================== 公共小工具 =====================
@@ -446,11 +828,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     public static SceneNode title(String value) {
-        return text(value, COL_TEXT, 20);
+        return text(value, com.november.mcphone.client.enhance.PhoneTheme.text(), 20);
     }
 
     public static SceneNode muted(String value) {
-        return text(value, COL_MUTED, 13);
+        return text(value, com.november.mcphone.client.enhance.PhoneTheme.muted(), 13);
     }
 
     // ===================== 时钟与壁纸 =====================
@@ -559,6 +941,14 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         });
     }
 
+    /** 服务端已购 App 同步到达（客户端 tick 主线程调用）：重建当前页刷新锁标/商店。 */
+    public static void onStoreSync() {
+        postAction(() -> {
+            PhoneUi ui = ACTIVE;
+            if (ui != null) ui.rebuildPage();
+        });
+    }
+
     /** 当前客户端已知的传送点列表（传送页渲染用）。 */
     public static java.util.List<ItemPhone.Waypoint> clientWaypoints() {
         return clientWaypoints;
@@ -574,7 +964,33 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     public void render(int w, int h, club.heiqi.uilib.ui.render.UiRenderBackend ctx, int absX, int absY) {
         flushPendingActions();
         super.render(w, h, ctx, absX, absY);
+        checkScissorLeak();
     }
+
+    /**
+     * 渲染后自检：手机帧结束时 scissor 若仍开启，说明某个 App/附属留下了未恢复
+     * 的裁剪，会泄漏到整个游戏画面（只剩 scissor 矩形内的一小块）。本库自身
+     * ClipStack 恒成对开关、帧末恢复，所以帧末不应残留。检测到即关掉并每 App
+     * 告警一次（置 PhoneCanvas.clipped 供 About 页提示），fail-safe 不崩溃。
+     */
+    private void checkScissorLeak() {
+        if (!GL11.glIsEnabled(GL11.GL_SCISSOR_TEST)) return;
+        int enabled = 0;
+        // 无法得知调用方堆叠了几层，最多剥 8 层兜底。
+        while (GL11.glIsEnabled(GL11.GL_SCISSOR_TEST) && enabled < 8) {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            enabled++;
+        }
+        String pageId = currentPageId;
+        if (pageId != null && WARNED_PAGES.add(pageId)) {
+            System.err.println("[mcphone] scissor leak detected on page '" + pageId
+                + "' (disabled " + enabled + " layer(s)); the offending app left GL_SCISSOR_TEST enabled");
+        }
+        PhoneCanvas.setClipped(true);
+    }
+
+    /** 已告警过的页面 id（每页只告警一次，避免刷日志）。 */
+    private static final java.util.Set<String> WARNED_PAGES = new java.util.HashSet<>();
 
     @Override
     protected SceneNode getRoot() {

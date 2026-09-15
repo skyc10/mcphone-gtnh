@@ -24,6 +24,14 @@ MCphone 提供基于 Qz-UILib 场景渲染的 App 扩展接口。附属 mod 只�
 | `PhoneAppConfig` | 每 App 持久化 KV 配置（跨存档） |
 | `PhoneApi` | 注册表：register / byId / apps / orderedApps |
 
+> **液态玻璃（v3 新增，review F7）**：玻璃**默认开启**，此时 `PhoneWidgets.card(...)` /
+> `button(...)` 的底色是**玻璃令牌**（深色 `0x5A14181C` 级、圆角 12），不再是旧的 `0x33FFFFFF` 白蒙层 /
+> `0xFF3A414D` 实心灰；`primaryButton` 仍是实心 accent（不上玻璃）。
+> 附属 App 若要自己写文字色，请用 `PhoneWidgets.glassText()` / `glassMuted()`
+> （= `PhoneGlass.text()/muted()`，按档配对），**或保证"底色与文字成对"**——直接把浅色文字压在很薄的玻璃上
+> （浅色壁纸 + 极薄档 + 小字号）会出现低于 4.5:1 的对比度。
+> 玻璃关闭 / Qz 玻璃类缺失时 `card`/`button` 回落为旧值（`PANEL` + 8px / `BTN_BG` + 8px），公开方法签名未变。
+
 ### App 两种形态
 
 - **页面型**（默认）：点击图标后 `createPage(ctx)` 构建页面场景树。
@@ -139,3 +147,45 @@ cfg.putInt("level", 3);
 4. 联网操作用你自己的网络包（`ctx.sendToServer` 仅能发 MCphone 通道已注册的消息）。
 5. App 全部是客户端对象；服务端逻辑写在你的 mod 里。
 6. 设置页调整界面/字体缩放会重建页面——不要跨重建缓存场景节点引用。
+7. **玻璃配色（v3）**：玻璃开启时 `card` / `button` 的底色是**玻璃令牌**（深色、圆角 12），
+   附属 App 自定义文字请用 `PhoneWidgets.glassText()` / `glassMuted()`，**或保证底色与文字成对**
+   （最坏情况是"浅色壁纸 + 极薄档 + 小字号"，浅字压在亮雾底上会低于 4.5:1 基线）。
+   档位/强度由用户在手机"设置 → 显示"里改，`PhoneGlass.Tier` / `PhoneCanvas` 只是读数来源，
+   附属不需要、也不应该缓存它们。
+
+## 八、每 App 快捷键
+
+玩家可以在手机"应用管理"页为任意 App 绑定一个键盘快捷键：点该行的"键"按钮
+进入捕获态，再按目标组合键即完成绑定。格式为 `主键` 或
+`SHIFT+主键` / `CTRL+主键` / `ALT+主键`（可叠加，如 `CTRL+SHIFT+K`），
+持久化在 `settings.properties` 的 `hotkey.<appId>`。Esc 取消捕获；
+重复按同一主键（无修饰键）清除绑定。绑定冲突只警告不阻止。
+
+### 触发行为与 opensInsidePhone()
+
+按键触发时调用你的 `IPhoneApp.onActivate(...)`。默认行为由
+`opensInsidePhone()` 决定（默认 `!isDirectAction()`）：
+
+- **页面型 App**（默认）：先打开手机界面，再进入你的页面。
+- **直达型 App**（`isDirectAction() == true`）：不开机、不弹界面，直接回调
+  `onActivate`——适合传送、拍照等一按即用的动作。若你的 `onActivate`
+  自行打开了 GuiScreen，该屏幕会保留。
+
+热键只在无 GUI 打开、玩家存活且非 spectator 时生效；仅支持键盘
+（修饰键按物理左右 Shift/Ctrl/Alt 任一即可）。App 被玩家停用后热键不触发。
+
+## 九、渲染安全（GL 状态）
+
+宿主每帧渲染结束后自检 `GL_SCISSOR_TEST`：若你的 App 在页面上开启了 scissor
+（或调用了会改 GL 状态的原生渲染代码）却没有恢复，宿主会自动关掉泄漏的裁剪层，
+在日志打印 `[mcphone] scissor leak detected on page '...'`，并在设置页显示一次
+提示。不会崩溃，但请自觉配对开关。
+
+规则：
+
+1. **scissor/stencil 等状态必须 try/finally 成对恢复**：`glEnable(GL_SCISSOR_TEST)`
+   后务必在 finally 里 `glDisable`。优先使用 Qz-UILib 的 `setClipChildren(true)`
+   节点裁剪，宿主会自动管理。
+2. 不要在 `createPage` / 回调里改投影矩阵、视口或帧缓冲；页面建树是纯场景操作。
+3. 自绘纹理/图片用 `PhoneWidgets` 提供的 image 节点；绕开宿主直接画 GL 的代码
+   出了问题不会被本 API 兼容性承诺覆盖。

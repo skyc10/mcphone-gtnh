@@ -33,8 +33,10 @@ public final class BuiltinApps {
         list.add(ae2());
         list.add(camera());
         list.add(gallery());
+        list.add(chat());
         list.add(settings());
         list.add(appManager());
+        list.add(store());
         return list;
     }
 
@@ -104,6 +106,22 @@ public final class BuiltinApps {
         };
     }
 
+    private static IPhoneApp chat() {
+        return new Page("chat", "app.mcphone.chat", "聊", 0xFF4E9E6E) {
+
+            @Override
+            public String iconTexture() {
+                return "mcphone:textures/ui/app_chat.png";
+            }
+
+
+            @Override
+            public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
+                return ScenePages.chatPage(ui);
+            }
+        };
+    }
+
     private static IPhoneApp settings() {
         return new Page("settings", "app.mcphone.settings", "设", 0xFF7E7E86) {
 
@@ -136,6 +154,23 @@ public final class BuiltinApps {
         };
     }
 
+    /** 应用商店：列出待购的内建付费 App（购买走服务端扣物校验，本 App 自身免费）。 */
+    private static IPhoneApp store() {
+        return new Page("store", "app.mcphone.store", "店", 0xFF2E9E4E) {
+
+            @Override
+            public club.heiqi.uilib.ui.scene.node.SceneNode createPage(PhoneUi ui) {
+                return ScenePages.storePage(ui);
+            }
+
+            @Override
+            public ItemStack iconItem() {
+                // 绿宝石物品图标（与末影箱图标的画法一致；取静态字段无需判空）。
+                return new ItemStack(net.minecraft.init.Items.emerald);
+            }
+        };
+    }
+
     // ===================== 直达型 =====================
 
     private static IPhoneApp enderChest() {
@@ -149,7 +184,8 @@ public final class BuiltinApps {
 
             @Override
             public ItemStack iconItem() {
-                Item it = Item.getItemById(130); // 末影箱
+                // 按注册名取物品（id 130 硬编码依赖注册顺序，附属一多就漂移）。
+                Item it = Item.getItemFromBlock(net.minecraft.init.Blocks.ender_chest);
                 return it == null ? null : new ItemStack(it);
             }
 
