@@ -87,6 +87,44 @@ public interface IPhoneApp {
         return !isDirectAction();
     }
 
+    /**
+     * 可选：本 App 依赖（联动）的外部模组 id 列表。
+     *
+     * <p><b>语义是「软」的</b>：声明了对方没装，本 App 照样注册、照样能被点开——
+     * 声明唯一的落点是商店的「联动App」页
+     * （{@link com.november.mcphone.client.store.CompanionAppsPage}）：列一行
+     * 「需要 XXX」+ 右侧实时「已装 / 未装」。也就是说它<b>不</b>参与「App 出不出现在
+     * 主屏」的判断：GTNH 侧的 App 目录没有上游那套 {@code isAvailable()} /
+     * {@code UNAVAILABLE} 分层，把声明塞进可用性判断会让附属 App 因为一个模组缺失
+     * 而整体消失（见 {@link PhoneApi}）。</p>
+     *
+     * <p><b>上游对照</b>：november521/mcphone <b>v1.10.2</b>
+     * {@code shared/src/main/java/com/november/mcphone/api/client/app/IPhoneApp.java}
+     * 的 {@code requiredMods()} / {@code companionMods()}（返回
+     * {@code List<RequiredMod>}，{@code RequiredMod(modId, displayName)}）。
+     * 本侧把「硬前置 / 软联动」合并成<b>一个</b>方法：GTNH 侧没有
+     * {@code isAvailable()} 与 {@code UNAVAILABLE} 目录，两者在行为上无差别，
+     * 多一个方法只会多一份没人读的声明。</p>
+     *
+     * <p>返回值是<b>模组 id</b>（与 {@code cpw.mods.fml.common.Loader#isModLoaded(String)}
+     * 用的同一个字符串，<b>大小写敏感</b>，例如 {@code "appliedenergistics2"}、
+     * {@code "FMusic"}、{@code "mcphone_browser"}）。显示名<b>不</b>在这里给：
+     * 要显示它的时候那个模组多半没装、根本查不到名字，写死在调用侧（联动页），
+     * 与上游「displayName 要写死，别在运行时查」同一条规矩。</p>
+     *
+     * <p><b>二进制兼容</b>：本方法是 {@code default}，既有实现类（含已编译的附属
+     * jar）无需重编译，也不会出现 {@code AbstractMethodError}——解析不到实现时
+     * 回落到接口默认实现（JLS 13.5.4「新增 default 方法不破坏二进制兼容」）。
+     * 老附属不声明即返回空数组＝不在联动页出现，行为与新增本方法之前逐字一致；
+     * 附属若<b>已有</b>同名同参方法，类自己的实现优先，同样不冲突。</p>
+     */
+    default String[] requiredMods() {
+        return NO_REQUIRED_MODS;
+    }
+
+    /** 空声明常量（共享只读）：{@link #requiredMods()} 的默认返回。调用方不得修改。 */
+    String[] NO_REQUIRED_MODS = new String[0];
+
     /** 页面型 App：构建并返回页面根节点（一次性建树 + runtime 绑定）。 */
     default SceneNode createPage(PhoneUi ui) {
         return null;

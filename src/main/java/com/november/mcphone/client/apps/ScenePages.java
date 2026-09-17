@@ -50,6 +50,18 @@ public final class ScenePages {
     private static final int COL_BORDER = 0x55FFFFFF;
 
     /**
+     * 设置 App 当前显示的是否是「更换壁纸」子页。
+     *
+     * <p>上游把这一页做成独立页面（{@code PhoneScreen.WALLPAPER_PICKER}），由设置列表的
+     * 「更换壁纸」那一行 {@code navigateTo} 进入、点一张壁纸后又跳回设置列表
+     * （{@code WallpaperPicker.mouseClicked} 返回 true ⇒ 界面返回设置列表）。GTNH 侧设置
+     * 是一个长滚动页、没有子页导航，故用这个标志把两态在 {@link #settingsPage} 内部切换：
+     * 进入/返回都走 {@code PhoneUi.rebuildPage()}（与便签/相册的 {@code PageSlot} 两态同一套
+     * 「重建当前页」契约，副作用由 Qz 的挂载生命周期回收）。</p>
+     */
+    private static boolean settingsWallpaperView;
+
+    /**
      * 页面卡片/信息行底衬（玻璃令牌；改动前是 {@code COL_PANEL = 0x33FFFFFF} 常量）。
      *
      * <p>为什么不再用常量：底色 alpha 与材质档成对（设计文档 §9.2/§9.3），要跟随用户
@@ -222,7 +234,14 @@ public final class ScenePages {
         return page;
     }
 
-    /** 可换行的次要说明文字（setMaxTextWidth 触发 Qz 按宽拆行）。 */
+    /**
+     * 可换行的次要说明文字（{@code setMaxTextWidth} 触发 Qz 按宽拆行）。
+     *
+     * <p>宽 = {@code panelWidth() - 48}：滚动列自身左右各 12px padding
+     * （见 {@link #scrollColumn(PhoneUi)}），再留 24px 安全余量，保证文本盒严格落在容器内。
+     * Qz 的按宽拆行在布局期算一次并缓存于节点（{@code TextLinePlan}），绘制期复用，
+     * 无每帧测量/分配。</p>
+     */
     private static SceneNode wrappedMuted(PhoneUi ui, String value) {
         SceneNode n = PhoneUi.muted(value);
         n.setMaxTextWidth(ui.panelWidth() - 48);
@@ -604,6 +623,13 @@ public final class ScenePages {
     // ===================== 设置 =====================
 
     public static SceneNode settingsPage(PhoneUi ui) {
+        // 两态：设置列表 / 壁纸选择页（上游是独立页面 + navigateTo，见 settingsWallpaperView）。
+        // 自愈：每次「重新进入设置 App」都从列表开始。进入选择页走的是 rebuildPage（不重进
+        // App），返回走的是显式标志复位，两条路都不会经过这里；而任何把它留成 true 的意外
+        // 路径（例如切到别的 App 再回来）都会在此处回到列表，不会卡在壁纸页。
+        settingsWallpaperView = false;
+        SceneNode entryRow = null;
+
         SceneNode page = scrollColumn(ui);
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.settings")));
 
@@ -631,7 +657,7 @@ public final class ScenePages {
         // ===================== 显示（缩放） =====================
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.display")));
 
-        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.ui_scale")));
+        page.appendChild(wrappedMuted(ui, StatCollector.translateToLocal("label.mcphone.ui_scale")));
         // 滑条同为受控源：onChange 里写回 Signal 并落盘/应用。
         Signal<Double> uiScale = Signal.create((double) PhoneCanvas.getUiScalePercent());
         ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
@@ -645,7 +671,7 @@ public final class ScenePages {
                     }
                 })));
 
-        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.font_scale")));
+        page.appendChild(wrappedMuted(ui, StatCollector.translateToLocal("label.mcphone.font_scale")));
         Signal<Double> fontScale = Signal.create(PhoneCanvas.getFontScale() * 100.0);
         ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
             new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
@@ -658,7 +684,7 @@ public final class ScenePages {
                     }
                 })));
 
-        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("label.mcphone.button_scale")));
+        page.appendChild(wrappedMuted(ui, StatCollector.translateToLocal("label.mcphone.button_scale")));
         Signal<Double> buttonScale = Signal.create((double) PhoneCanvas.getButtonScale());
         ui.runtime().mount(page, club.heiqi.uilib.ui.scene.control.SceneSlider.create(ui.runtime(),
             new club.heiqi.uilib.ui.scene.control.SceneSlider.Props(
@@ -677,10 +703,10 @@ public final class ScenePages {
         // state.mcphone.on/off 文案。
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.display")));
         page.appendChild(glassToggleRow(ui));
-        page.appendChild(PhoneUi.muted(glassTierLegend()));
+        page.appendChild(wrappedMuted(ui, glassTierLegend()));
         page.appendChild(glassTierRow(ui));
 
-        page.appendChild(PhoneUi.muted(glassLensLabel()));
+        page.appendChild(wrappedMuted(ui, glassLensLabel()));
         // 受控滑条：onChange 只写回 Signal；**提交（松手）时**才落盘 + 经 PhoneUi.post 延迟生效
         // （拖动中重建整树会杀死拖动手势，踩坑 #4）。
         Signal<Double> lensStrength = Signal.create((double) PhoneCanvas.getGlassLensStrength());
@@ -694,28 +720,27 @@ public final class ScenePages {
                         PhoneUi.postAction(PhoneUi::refreshGlassShell);
                     }
                 })));
-        page.appendChild(PhoneUi.muted(glassHint()));
+        page.appendChild(wrappedMuted(ui, glassHint()));
 
         // ===================== 字体颜色 =====================
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.font_color")));
-        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.font_color_hint")));
+        page.appendChild(wrappedMuted(ui, StatCollector.translateToLocal("msg.mcphone.font_color_hint")));
         page.appendChild(fontColorRow(ui));
 
+        // 壁纸：照上游形态，设置列表里只有【一行】入口（上游 PhoneScreen.java:613-615 的
+        // settingItems：「更换壁纸」→ navigateTo(WALLPAPER_PICKER)），真正的选择界面是
+        // 独立一页（见 wallpaperPickerPage）。旧实现把 3 列色块预设网格直接摊在这一页里，
+        // 上游没有这种内嵌网格。
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.wallpaper")));
-        page.appendChild(wallpaperPresetGrid(ui));
-        mountPrimaryButton(ui, page, StatCollector.translateToLocal("btn.mcphone.reset_wallpaper"), () -> {
-            PhotoStore.clearWallpaper();
-            PhoneUi.refreshWallpaper();
-            ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_reset"));
-        });
+        page.appendChild(wallpaperEntryRow(ui));
 
         // ===================== 商店模式 =====================
         page.appendChild(PhoneUi.title(StatCollector.translateToLocal("label.mcphone.store_mode")));
         page.appendChild(storeModeRow(ui));
-        page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.store_hint")));
+        page.appendChild(wrappedMuted(ui, StatCollector.translateToLocal("msg.mcphone.store_hint")));
         // 渲染自检提示：本会话内有 App 泄漏过 GL 裁剪时告知玩家（fail-safe 已修复）。
         if (PhoneCanvas.isClipped()) {
-            page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.clipped_hint")));
+            page.appendChild(wrappedMuted(ui, StatCollector.translateToLocal("msg.mcphone.clipped_hint")));
         }
         return page;
     }
@@ -872,60 +897,317 @@ public final class ScenePages {
         return row;
     }
 
-    /** 预设壁纸网格（3 列色块缩略图）：点击生成渐变并写入 wallpaper.png，立即生效。 */
-    private static SceneNode wallpaperPresetGrid(PhoneUi ui) {
-        SceneNode grid = SceneNode.column();
-        grid.setFillParentWidth(true);
-        grid.setGap(8);
-        int perRow = 3;
-        int cellW = (ui.panelWidth() - 24 - (perRow - 1) * 8) / perRow;
-        for (int i = 0; i < com.november.mcphone.client.enhance.WallpaperPresets.count(); i += perRow) {
-            SceneNode row = SceneNode.row();
-            row.setFillParentWidth(true);
-            row.setGap(8);
-            for (int j = 0; j < perRow && i + j < com.november.mcphone.client.enhance.WallpaperPresets.count(); j++) {
-                row.appendChild(wallpaperPresetCell(ui, i + j, cellW));
-            }
-            grid.appendChild(row);
-        }
-        return grid;
+    // ===================== 壁纸选择页（照上游 WallpaperPicker） =====================
+
+    /** 缩略图边长（上游 WallpaperPicker.THUMB_W/THUMB_H = 46，正方形预览框）。 */
+    private static final int WP_THUMB = 46;
+    /** 缩略图之间的间隙（上游 GAP = 4）。 */
+    private static final int WP_GAP = 4;
+    /** 悬停高亮：上游选择态用的 0x44FFFFFF（PhoneTheme.COLOR_APP_PRESSED / COLOR_SELECTION 同值）。 */
+    private static final int WP_HOVER = 0x44FFFFFF;
+
+    /**
+     * 设置列表里的「更换壁纸」入口行（右端 chevron，整行可点）。
+     *
+     * <p>对应上游 {@code PhoneScreen.java:613-615}：
+     * {@code settingItems.add(new Item("mcphone.gui.wallpaper", () -> navigateTo(WALLPAPER_PICKER)))}。
+     * 回调只置标志 + {@code rebuildPage()}（经 {@code PhoneUi.postAction} 延迟到分发结束，
+     * 踩坑 #3：输入路由迭代中改树会抛 CME）。</p>
+     */
+    private static SceneNode wallpaperEntryRow(PhoneUi ui) {
+        SceneNode row = SceneNode.row();
+        row.setFillParentWidth(true);
+        row.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        row.setGap(6);
+        row.setPadding(8, 8, 8, 8);
+        applyCardSurface(row);
+
+        SceneNode label = new SceneNode();
+        label.setText(StatCollector.translateToLocal("btn.mcphone.change_wallpaper"));
+        label.setTextColor(PhoneTheme.text());
+        label.setFontSize(PhoneUi.fs(16));
+        label.setMaxTextWidth(ui.panelWidth() - 60);
+        label.setHitTestable(false);
+        row.appendChild(label);
+        row.appendChild(spacer());
+
+        SceneNode arrow = new SceneNode();
+        arrow.setText("›");
+        arrow.setTextColor(PhoneTheme.muted());
+        arrow.setFontSize(PhoneUi.fs(16));
+        arrow.setHitTestable(false);
+        row.appendChild(arrow);
+
+        ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+            settingsWallpaperView = true;
+            ui.rebuildPage();
+        }));
+        return row;
     }
 
-    private static SceneNode wallpaperPresetCell(PhoneUi ui, int index, int cellW) {
-        com.november.mcphone.client.enhance.WallpaperPresets.Preset preset =
-            com.november.mcphone.client.enhance.WallpaperPresets.get(index);
+    /**
+     * 壁纸选择页（上游 {@code WallpaperPicker}）。
+     *
+     * <p>版式逐条对照上游（v1.10.2 {@code shared/.../feature/settings/client/WallpaperPicker.java}）：
+     * <ul>
+     *   <li>标题行右侧一个「打开文件夹」文字键（{@code :114-135}）；</li>
+     *   <li>第二行一个「重置」键（上游还有「选择图片」，那要弹 AWT 文件选择器，见交付报告
+     *       §8 未解决项）；</li>
+     *   <li>1px 分隔线（{@code :165-167}）；</li>
+     *   <li>空目录时 4 行灰字：暂无壁纸 / 放入 PNG 到 / config/mcphone/ / wallpapers/
+     *       （{@code :169-188}；注意上游那条注释——空态里<b>不能</b>把 hovered 覆盖成 -1，
+     *       否则空目录时两个键永远点不动）；</li>
+     *   <li>2 列 × 46×46 缩略图，等比居中、下方居中显示名（超宽截断 + {@code …}）
+     *       （{@code :190-238}）；</li>
+     *   <li><b>无选中标记</b>，只有 hover 时整格 {@code COLOR_SELECTION} 高亮
+     *       （{@code :213-217}）。</li>
+     * </ul>
+     *
+     * <p><b>与上游的三处载体差异</b>（语义不变）：上游自己画滚动（{@code scrollRow} /
+     * {@code mouseScrolled}），这里交给 {@link #scrollColumn} 的 {@code SceneScrolls.attach}；
+     * 上游每帧 11 参 blit 现算等比，这里由 {@code WallpaperStore.thumbnail} 预包成
+     * 46×46 透明方框再整张贴；上游每帧在 {@code render} 里做目录列举与命中判定，
+     * 这里用 Qz 的 {@code POINTER_MOVE} 几何命中 + 一个"当前高亮格"引用。</p>
+     */
+    private static SceneNode wallpaperPickerPage(PhoneUi ui) {
+        // 上游 PhoneScreen 进入这一页时调 WallpaperStore.refresh()（:158-159）；
+        // ensureBuiltIns 保证首次运行时 6 个内置预设已作为 PNG 落在该目录里。
+        com.november.mcphone.client.enhance.WallpaperStore.ensureBuiltIns();
+        com.november.mcphone.client.enhance.WallpaperStore.refresh();
+
+        SceneNode page = scrollColumn(ui);
+        // 表格容器（手动分行，理由见下）。
+        SceneNode grid = SceneNode.column();
+        grid.setFillParentWidth(true);
+        grid.setPadding(0, 6, 0, 6);   // 上游 PAD_X = 6
+        final SceneNode[] hotCell = { null };
+
+        // ---- 标题行：标题 + 右端「打开文件夹」 ----
+        int padX = 6;
+        int contentW = Math.max(80, ui.panelWidth() - padX * 2);
+        String openLabel = StatCollector.translateToLocal("msg.mcphone.wp_open_folder");
+        int openW = Math.max(40, openLabel.length() * Math.max(6, PhoneUi.fs(14) / 2));
+        int titleLimit = Math.max(40, contentW - openW - 6);
+        SceneNode header = SceneNode.row();
+        header.setFillParentWidth(true);
+        header.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        header.setGap(4);
+
+        SceneNode title = new SceneNode();
+        title.setText(StatCollector.translateToLocal("msg.mcphone.wp_title"));
+        title.setTextColor(PhoneTheme.text());
+        title.setFontSize(PhoneUi.fs(16));
+        title.setMaxTextWidth(titleLimit);
+        title.setHitTestable(false);
+        header.appendChild(title);
+        header.appendChild(spacer());
+
+        SceneNode open = new SceneNode();
+        open.setText(openLabel);
+        open.setTextColor(PhoneTheme.muted());
+        open.setFontSize(PhoneUi.fs(14));
+        header.appendChild(open);
+        ui.runtime().on(open, SceneEventType.CLICK,
+            (e, ctx) -> PhoneUi.postAction(() -> openWallpaperFolder(ui)));
+        page.appendChild(header);
+
+        // ---- 第二行：重置键（上游同一行是「选择图片」+「恢复默认背景」并排）----
+        mountPrimaryButton(ui, page, StatCollector.translateToLocal("btn.mcphone.reset_wallpaper"), () -> {
+            PhotoStore.clearWallpaper();
+            PhoneUi.refreshWallpaper();
+            ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_reset"));
+        });
+
+        // ---- 1px 分隔线（上游 :165-167）----
+        SceneNode line = SceneNode.row();
+        line.setFillParentWidth(true);
+        line.setPreferredHeight(1);
+        line.setBackgroundColor(0x4450567C);
+        line.setHitTestable(false);
+        page.appendChild(line);
+
+        // ---- 内容 ----
+        java.util.List<com.november.mcphone.client.enhance.WallpaperStore.Entry> list =
+            com.november.mcphone.client.enhance.WallpaperStore.getWallpapers();
+
+        if (list.isEmpty()) {
+            // 上游空态 4 行（:169-188）：暂无壁纸 / 放入PNG到 / config/mcphone/ / wallpapers/
+            // GTNH 侧把后三行并成一行完整路径（路径不再被拆成两个 i18n 片段）。
+            page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.wp_empty")));
+            page.appendChild(PhoneUi.muted(StatCollector.translateToLocal("msg.mcphone.wp_hint")));
+            page.appendChild(PhoneUi.muted(com.november.mcphone.client.enhance.WallpaperStore
+                .directoryDisplayPath()));
+            // 上游在空态里【不】把 hovered 复位（:180-185 那条注释，2026-09-08 实机踩过）：
+            // 标题行与两个键的命中判定在 early-return 之前就算完了，覆盖会让"目录是空的"
+            // 这个最想点它们的时刻点不动。本实现的高亮是独立的，同一道理：不重置任何东西。
+            page.appendChild(backRow(ui));
+            return page;
+        }
+
+        int box = WP_THUMB;
+        int colStep = box + WP_GAP;
+        // 标签行高：上游用 font.lineHeight；GTNH 侧看 fs(12) 的字高。
+        int labelH = Math.max(10, PhoneUi.fs(12) + 2);
+        int cellH = box + labelH + 4;
+
+        // Qz 没有 flex-wrap（SceneNode 只有 FlexDirection.ROW/COLUMN，无 wrap），
+        // 上游也是手写"一行满了几张就换行"（:230-237）⇒ 这里同样手动分行。
+        // 列数按内容区宽度算（上游 colsFor(contentW)）：上游手机上算出来是 2、平板 4；
+        // 平移到 GTNH（面板宽最小 260）就是 4 列。
+        int cols = Math.max(1, (contentW + WP_GAP) / colStep);
+
+        // 扁平格引用表：hover 判定要用（不用 __getChildren 遍历，避免依赖内部通道）。
+        java.util.List<SceneNode> cells = new java.util.ArrayList<SceneNode>();
+        SceneNode rowNode = null;
+        int col = 0;
+        for (int i = 0; i < list.size(); i++) {
+            if (col == 0) {
+                rowNode = SceneNode.row();
+                rowNode.setFillParentWidth(true);
+                rowNode.setGap(WP_GAP);
+                grid.appendChild(rowNode);
+            }
+            SceneNode cellNode = wallpaperCell(ui, list.get(i), box);
+            cells.add(cellNode);
+            rowNode.appendChild(cellNode);
+            col++;
+            if (col >= cols) col = 0;
+        }
+        page.appendChild(grid);
+        installWallpaperHover(ui, grid, hotCell, cells, cols, colStep, cellH);
+        page.appendChild(backRow(ui));
+        return page;
+    }
+
+    /**
+     * 一格壁纸缩略图：46×46 等比居中预览 + 下方居中显示名。
+     *
+     * <p>与上游 {@code WallpaperPicker} 的差别只有"高亮怎么点出来"：上游在 render 里用
+     * 鼠标坐标算，这里先按几何算（见 {@link #installWallpaperHover}）。</p>
+     */
+    private static SceneNode wallpaperCell(
+            PhoneUi ui, com.november.mcphone.client.enhance.WallpaperStore.Entry entry, int box) {
+
         SceneNode cell = SceneNode.column();
         cell.setWidthSizing(SceneNode.WidthSizing.SHRINK);
         cell.setCrossAxisAlign(CrossAxisAlign.CENTER);
-        cell.setGap(4);
+        cell.setGap(1);
+        // 缩略图底衬：完全透明（0 alpha 不上玻璃、不画底），图源缺失时才需要兜底 ⇒ 缺图分支
+        // 单独给一块中性底，正常路径与上游一样"只有图"。
+        cell.setBackgroundColor(0);
 
-        SceneNode swatch = SceneNode.row();
-        swatch.setWidthSizing(SceneNode.WidthSizing.SHRINK);
-        swatch.setPreferredWidth(cellW);
-        swatch.setPreferredHeight(cellW * 16 / 9);
-        swatch.setCornerRadius(8);
-        swatch.setBackgroundColor(preset.swatchColor());
-        swatch.setBorderWidth(1);
-        swatch.setBorderColor(COL_BORDER);
-        swatch.setClipChildren(true);
-        ui.runtime().on(swatch, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
-            if (com.november.mcphone.client.enhance.WallpaperPresets.apply(index)) {
-                ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_set"));
-            } else {
-                ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_fail"));
+        SceneNode thumb = SceneNode.row();
+        // 显式 preferred 尺寸：Qz 求解器在部分容器旁会对 grow/无界尺寸早退（"不显示内容"），
+        // 缩略图必须给出确定边长。
+        thumb.setPreferredWidth(box);
+        thumb.setPreferredHeight(box);
+        thumb.setHitTestable(false);
+        boolean hasImage = false;
+        try {
+            java.awt.image.BufferedImage img =
+                com.november.mcphone.client.enhance.WallpaperStore.thumbnail(entry, box);
+            if (img != null) {
+                thumb.setImageSource(HostImageSource.bufferedImage(img,
+                    com.november.mcphone.client.enhance.WallpaperStore.thumbnailKey(entry, box)));
+                hasImage = true;
             }
-        }));
-        cell.appendChild(swatch);
+        } catch (Throwable ignored) {
+            // 缺图：留空，底下给一块中性底
+        }
+        if (!hasImage) thumb.setBackgroundColor(0xFF101418);
+        cell.appendChild(thumb);
 
         SceneNode label = new SceneNode();
-        label.setText(StatCollector.translateToLocal(preset.nameKey));
-        label.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.muted());
+        label.setText(entry.label());
+        label.setTextColor(PhoneTheme.muted());
         label.setFontSize(PhoneUi.fs(12));
-        label.setMaxTextWidth(cellW);
+        label.setMaxTextWidth(box);
         label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
         label.setHitTestable(false);
         cell.appendChild(label);
+
+        ui.runtime().on(cell, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+            // 只把选中文件名交给 PhoneUi（它自己决定 imageKey/裁剪口径）；
+            // 上游这一步是 MCphoneNetwork.sendToServer(new SetWallpaperPacket(fileName))，
+            // 我们本轮只做本地生效（服务端同步见交付报告 §8）。
+            PhoneUi.selectWallpaper(entry.fileName);
+            ui.toast(StatCollector.translateToLocal("msg.mcphone.wallpaper_set"));
+            // 上游点中之后返回设置列表（WallpaperPicker.mouseClicked 返回 true）。
+            settingsWallpaperView = false;
+            ui.rebuildPage();
+        }));
         return cell;
+    }
+
+    /**
+     * 一个 hover 处理器负责整张网格（上游在 render 里逐格判断，语义相同）。
+     *
+     * <p>坐标口径与 {@code PhoneUi.dropIndexAt} 一致：Qz 的
+     * {@code SceneGeometry.absoluteBox} 相对场景根，本节点的局部指针坐标 + 本节点的根相对框
+     * = 指针的根相对坐标。挂在<b>网格容器</b>上而不是每一格上：指针移出所有格子时只有容器
+     * 仍收得到 {@code POINTER_MOVE}，逐格挂会导致高亮滞留（上游每帧重算，没有这个问题）。</p>
+     */
+    private static void installWallpaperHover(
+            PhoneUi ui, final SceneNode grid, final SceneNode[] hotCell,
+            final java.util.List<SceneNode> cells, final int cols, final int colStep, final int cellH) {
+
+        ui.runtime().on(grid, SceneEventType.POINTER_MOVE, (e, ctx) -> {
+            club.heiqi.uilib.ui.scene.layout.AnchorRect gb =
+                club.heiqi.uilib.ui.scene.layout.SceneGeometry.absoluteBox(grid, 0, 0);
+            int relX = ctx.getLocalPointerX();
+            int relY = ctx.getLocalPointerY();
+            int hit = -1;
+            if (relX >= 0 && relY >= 0) {
+                int col = relX / Math.max(1, colStep);
+                int rowIdx = relY / Math.max(1, cellH);
+                int candidate = rowIdx * cols + col;
+                // 尾部行不满时 col 也可能越界（落在最后一格右边的空白上），用 cells.size() 判定
+                if (col < cols && candidate >= 0 && candidate < cells.size()) hit = candidate;
+            }
+            SceneNode wanted = hit < 0 ? null : cells.get(hit);
+            SceneNode was = hotCell[0];
+            if (was == wanted) return;
+            if (was != null) was.setBackgroundColor(0);
+            if (wanted != null) wanted.setBackgroundColor(WP_HOVER);
+            hotCell[0] = wanted;
+        });
+    }
+
+    /** 返回设置列表（上游点中壁纸后自动回设置列表；这里给一个显式返回键）。 */
+    private static SceneNode backRow(PhoneUi ui) {
+        SceneNode row = SceneNode.row();
+        row.setFillParentWidth(true);
+        row.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        row.setPadding(6, 6, 6, 6);
+        applyCardSurface(row);
+        SceneNode label = new SceneNode();
+        label.setText("‹ " + StatCollector.translateToLocal("btn.mcphone.back"));
+        label.setTextColor(PhoneTheme.text());
+        label.setFontSize(PhoneUi.fs(14));
+        label.setHitTestable(false);
+        row.appendChild(label);
+        ui.runtime().on(row, SceneEventType.CLICK, (e, ctx) -> PhoneUi.postAction(() -> {
+            settingsWallpaperView = false;
+            ui.rebuildPage();
+        }));
+        return row;
+    }
+
+    /** 打开系统文件管理器定位到壁纸目录（上游 ImageFolder.openInFileManager）。 */
+    private static void openWallpaperFolder(PhoneUi ui) {
+        try {
+            java.io.File dir = com.november.mcphone.client.enhance.WallpaperStore.directory();
+            if (java.awt.Desktop.isDesktopSupported()
+                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.awt.Desktop.getDesktop().open(dir);
+                return;
+            }
+        } catch (Throwable ignored) {
+            // 落到下面的提示分支
+        }
+        ui.toast(StatCollector.translateToLocalFormatted(
+            "msg.mcphone.wp_folder_hint",
+            com.november.mcphone.client.enhance.WallpaperStore.absolutePath()));
     }
 
     // ===================== 应用管理 =====================
@@ -1008,87 +1290,12 @@ public final class ScenePages {
     // ===================== 应用商店 =====================
 
     /**
-     * 独立商店页：仅商店模式开启时，列出「付费且未购」的内建 App（已购/免费的
-     * 不出现——它们直接在主屏）。购买走服务端扣物校验，成功回包 UnlockSync
-     * 触发 {@link PhoneUi#onStoreSync()} 重建本页，无需本地刷新逻辑。
+     * 应用商店页（上游形态）：首页 4 列图标网格 + 页内详情页，实现全在同包的
+     * {@link com.november.mcphone.client.store.StoreFront}（它要自持槽位/选中 App/
+     * 在途购买三样状态，塞进本类只能靠静态字段，会在主屏与 HUD 两个手机实例间串味）。
      */
     public static SceneNode storePage(PhoneUi ui) {
-        SceneNode page = scrollColumn(ui);
-        page.appendChild(PhoneUi.title(StatCollector.translateToLocal("app.mcphone.store")));
-
-        if (!com.november.mcphone.client.StoreClient.isEnabled()) {
-            page.appendChild(PhoneUi.muted(
-                StatCollector.translateToLocal("msg.mcphone.store_closed_hint")));
-            return page;
-        }
-
-        java.util.List<IPhoneApp> paid = new java.util.ArrayList<>();
-        for (IPhoneApp app : PhoneApi.orderedApps()) {
-            if (com.november.mcphone.client.StoreClient.needsPurchase(app)) paid.add(app);
-        }
-        if (paid.isEmpty()) {
-            page.appendChild(PhoneUi.muted(
-                StatCollector.translateToLocal("msg.mcphone.store_empty")));
-        }
-        for (int i = 0; i < paid.size(); i++) {
-            final IPhoneApp app = paid.get(i);
-            SceneNode row = SceneNode.row();
-            row.setFillParentWidth(true);
-            row.setCrossAxisAlign(CrossAxisAlign.CENTER);
-            row.setGap(8);
-            row.setPadding(8, 8, 8, 8);
-            applyCardSurface(row);
-            row.setBorderWidth(1);
-            row.setBorderColor(COL_BORDER);
-            // 图标：与主屏同源（纹理 > 物品 > 字形），小号底板。
-            SceneNode iconBox = SceneNode.row();
-            iconBox.setWidthSizing(SceneNode.WidthSizing.SHRINK);
-            iconBox.setPreferredWidth(24);
-            iconBox.setPreferredHeight(24);
-            iconBox.setCornerRadius(6);
-            iconBox.setBackgroundColor(app.iconColor());
-            iconBox.setBorderWidth(1);
-            iconBox.setBorderColor(0x2EFFFFFF);
-            iconBox.setMainAxisAlign(MainAxisAlign.CENTER);
-            iconBox.setCrossAxisAlign(CrossAxisAlign.CENTER);
-            iconBox.setHitTestable(false);
-            ItemStack item = app.iconItem();
-            String tex = app.iconTexture();
-            if (tex != null) {
-                iconBox.setImageSource(HostImageSource.texture(
-                    new net.minecraft.util.ResourceLocation(tex), 128, 128));
-            } else if (item != null) {
-                iconBox.setImageSource(HostImageSource.itemIcon(item));
-            } else {
-                SceneNode glyph = new SceneNode();
-                glyph.setText(app.iconGlyph());
-                glyph.setTextColor(0xFFFFFFFF);
-                glyph.setFontSize(PhoneUi.fs(13));
-                glyph.setHitTestable(false);
-                iconBox.appendChild(glyph);
-            }
-            row.appendChild(iconBox);
-            SceneNode name = new SceneNode();
-            name.setText(app.displayName());
-            name.setTextColor(PhoneTheme.text());
-            name.setFontSize(PhoneUi.fs(15));
-            name.setHitTestable(false);
-            row.appendChild(name);
-            row.appendChild(spacer());
-            String price = com.november.mcphone.client.StoreClient.priceText(app);
-            SceneNode priceNode = new SceneNode();
-            priceNode.setText(price == null ? "" : price);
-            priceNode.setTextColor(PhoneTheme.muted());
-            priceNode.setFontSize(PhoneUi.fs(14));
-            priceNode.setHitTestable(false);
-            row.appendChild(priceNode);
-            mountPrimaryButton(ui, row, StatCollector.translateToLocal("btn.mcphone.buy"),
-                () -> NetworkHandler.sendToServer(new NetworkHandler.PurchaseApp(app.id())));
-            page.appendChild(row);
-        }
-        page.appendChild(PhoneUi.muted(
-            StatCollector.translateToLocal("msg.mcphone.store_footnote")));
-        return page;
+        return com.november.mcphone.client.store.StoreFront.page(ui);
     }
 
     /**

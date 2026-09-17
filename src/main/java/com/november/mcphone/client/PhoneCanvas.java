@@ -86,7 +86,21 @@ public final class PhoneCanvas {
 
     /**
      * 商店模式：开启后内建付费 App 需购买解锁（附属 App 始终免费可用）。
-     * 默认关闭——关闭时与旧版行为完全一致。
+     *
+     * <p><b>默认开启（"true"）＝产品决定，不是上游行为：</b></p>
+     * <ul>
+     *   <li><b>上游（november521/mcphone v1.10.2）根本没有这个开关</b>：商店恒可用、
+     *       付费 App 恒需购买（{@code feature/store/...} 里没有任何 storeMode 设置项）。
+     *       本开关是 GTNH 侧额外加的"能退回旧行为"的逃生门，所以它对上游没有对照物；</li>
+     *   <li>默认开 = 更贴近上游形态（从第一次进服起，付费 App 就是要买的）；</li>
+     *   <li><b>关掉后行为回到 v1.0.2 的"全部直接可用"</b>：客户端
+     *       {@code StoreClient.isUnlocked} 恒真、主屏不过滤、商店页直接早退（没有购买入口），
+     *       服务端门禁（{@code StoreManager.purchaseGateActive}）也随该开关一起失效。</li>
+     * </ul>
+     *
+     * <p><b>读键/clamp/持久化口径不变</b>：只有 settings.properties 里<b>没有</b>
+     * {@code storeMode} 这个键时才用到这里的默认值；老玩家若已被显式写入
+     * {@code storeMode=false}，这次改动不会把他偷偷打开。</p>
      *
      * <p>UI 每帧都会查询，这里加内存缓存：首次读取落盘一次，之后只在写入时
      * 更新缓存（避免每帧读盘）。</p>
@@ -99,7 +113,7 @@ public final class PhoneCanvas {
             synchronized (PhoneCanvas.class) {
                 if (!storeModeLoaded) {
                     storeModeCache = "true".equalsIgnoreCase(
-                        load().getProperty(KEY_STORE_MODE, "false").trim());
+                        load().getProperty(KEY_STORE_MODE, "true").trim());
                     storeModeLoaded = true;
                 }
             }
@@ -348,6 +362,9 @@ public final class PhoneCanvas {
         Properties p = load();
         p.setProperty(KEY_GLASS_ENABLED, Boolean.toString(v));
         save(p);
+        // 配方缓存含「档 + 角色 + 最终 lens（含本开关所影响的能力探测结果）」；
+        // 写入后立即失效，保证下一次 apply 重新计算（见 PhoneGlass.invalidateRecipes）。
+        com.november.mcphone.client.enhance.PhoneGlass.invalidateRecipes();
     }
 
     /**
@@ -372,6 +389,8 @@ public final class PhoneCanvas {
             Integer.toString(com.november.mcphone.client.enhance.PhoneGlass.Tier
                 .normalize(tierOrdinal).ordinal()));
         save(p);
+        // 档位进了缓存键，清缓存是冗余防御（与另外两个 setter 口径一致）。
+        com.november.mcphone.client.enhance.PhoneGlass.invalidateRecipes();
     }
 
     /**
@@ -396,6 +415,8 @@ public final class PhoneCanvas {
         Properties p = load();
         p.setProperty(KEY_GLASS_LENS, String.valueOf(v));
         save(p);
+        // 关键：清掉按 (档, 角色, 旧 lens) 建的配方，否则新 lens 只在重启进程后才生效。
+        com.november.mcphone.client.enhance.PhoneGlass.invalidateRecipes();
     }
 
     /** 供 PhoneGlass 换算的全局倍率（= strength / 默认值；默认 1.0 ⇒ 倍率 1.0）。 */
