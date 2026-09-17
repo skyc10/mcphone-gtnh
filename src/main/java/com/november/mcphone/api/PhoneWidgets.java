@@ -4,6 +4,7 @@ import club.heiqi.uilib.ui.scene.input.SceneEventType;
 import club.heiqi.uilib.ui.scene.layout.CrossAxisAlign;
 import club.heiqi.uilib.ui.scene.layout.MainAxisAlign;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
+import club.heiqi.uilib.ui.scene.runtime.SceneScrolls;
 
 import com.november.mcphone.client.PhoneCanvas;
 import com.november.mcphone.client.enhance.PhoneGlass;
@@ -61,6 +62,9 @@ public final class PhoneWidgets {
         col.setPadding(12);
         col.setGap(10);
         col.setScrollable(true);
+        // HS-01：滚轮能力必须 attach（setScrollable(true) 之后调用，否则 Qz 抛异常）——
+        // 不补这一行的话 scrollColumn 只有视口裁剪、没有滚轮 handler，附属 App 全部滚不动。
+        SceneScrolls.attach(ctx.runtime(), col);
         col.setClipChildren(true);
         return col;
     }
