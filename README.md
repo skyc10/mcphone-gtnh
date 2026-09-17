@@ -10,6 +10,8 @@
 
 **Minecraft 1.7.10** · **GTNH 2.9.0-beta-3** · 客户端与服务端都需安装
 
+> 冲刺 GTNH **星门认证**？请改用 `stargate-rules` 分支的星门规则版，见 **[星门规则版（stargate-rules 分支）](#星门规则版stargate-rules-分支)** 与 [docs/STARGATE-RULES.md](docs/STARGATE-RULES.md)。
+
 **前置模组**：
 
 | 模组 | 说明 |
@@ -59,6 +61,47 @@
 | C | 相机拍照（取景时） |
 | G | 常显 HUD 显隐开关 |
 | 每 App 热键 | 应用管理页内自行绑定，见上表 |
+
+## 星门规则版（stargate-rules 分支）
+
+`master` 面向日常游玩；`stargate-rules` 分支是面向 **GTNH「星门规则」认证跑**的合规版——手机里超出官方服务器 QoL 供给水平的玩法功能**默认全部关闭或受限**，满足规则「Custom Mods 不得实质性影响游戏进程；插件不得超过官方 QoL 供给」的要求。完整判定与配置说明见 **[docs/STARGATE-RULES.md](docs/STARGATE-RULES.md)**。
+
+**与 master 的差异（默认状态）**：
+
+| 功能 | master | 星门规则版默认 |
+| --- | --- | --- |
+| 📡 ME终端（AE2 无线终端直连） | 潜行+右击 ME 安全站即可用 | **关闭**（`[ae2] registerWirelessTerminal=false`） |
+| 内置兜底物品终端 | 无终端时自动可用 | **关闭**（`[ae2] builtinTerminal=false`） |
+| 🌀 传送点数量 | 不限 | **3 个**（`[teleport] maxWaypoints=3`） |
+| 传送冷却 | 无 | **30 秒**（`[teleport] cooldownSeconds=30`） |
+| 跨维度传送 | 支持 | **禁止**（`[teleport] crossDimension=false`） |
+| 📦 末影箱直开 | 可用 | **关闭**（`[enderchest] enabled=false`） |
+| 💬 聊天好友传送 | 可用 | 保持可用（`[chat] friendTeleport=true`，对齐官方 `/tp` 到玩家） |
+| 时钟/天气/便签/相机/相册/HUD | 可用 | 不变——纯 QoL，规则允许 |
+
+**如何开启**：玩法功能统一由 `config/mcphone-stargate.cfg` 控制（首次运行自动生成带注释的默认配置，改完保存免重启生效；多人服以**服务器端**的配置为准）。想恢复 master 同款体验，把配置改成：
+
+```properties
+ae2 {
+    registerWirelessTerminal=true
+    builtinTerminal=true
+}
+teleport {
+    maxWaypoints=2147483647
+    cooldownSeconds=0
+    crossDimension=true
+}
+enderchest {
+    enabled=true
+}
+```
+
+**平衡代价（为什么默认值长这样）**：默认档位对齐官方服务器的 QoL 供给——
+
+- 聊天好友传送保留，因为规则明文允许「对其他玩家 `/tp`」；
+- 传送点限 3 个 + 30 秒冷却 + 不跨维度，只保留「传送到路径点」这一官方认可形态，且不给官方之外的收益；
+- AE2 无线终端与末影箱涉及「跳过游戏内成本」（通用无线终端的合成与电力约束、末影箱的合成与随身携带），属于「实质性影响游戏进程」，因此默认关闭——想用就得在配置里放开并**自行向 GTNH staff 报备**；
+- 拿不准的组合，按规则兜底条款 **Ask GTNH staff**，`docs/STARGATE-RULES.md` 第 4 节有现成的功能清单与中英文询问话术。
 
 ## 开发者 / AI 接手
 
