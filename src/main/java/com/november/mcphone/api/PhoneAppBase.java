@@ -14,10 +14,9 @@ import cpw.mods.fml.relauncher.SideOnly;
  *     public MyClockApp() { super("myclock", "app.mymod.clock", 0xFF3E6E9E); }
  *
  *     &#64;Override
- *     public SceneNode createPage(PhoneContext ctx) {
- *         SceneNode page = PhoneWidgets.scrollColumn(ctx);
- *         page.appendChild(PhoneWidgets.title(ctx, PhoneWidgets.text(ctx, ...).getText()));
- *         // ... 用 PhoneWidgets 搭页面
+ *     public SceneNode createPage(PhoneUi ui) { // 真签名参数是 PhoneUi（内部类）；写 PhoneContext 编译不过
+ *         SceneNode page = PhoneWidgets.scrollColumn(ui); // PhoneUi 实现 PhoneContext，可直接传入
+ *         // ... 用 PhoneWidgets 搭页面（ui 同时提供 PhoneContext 的 tr/toast 等能力）
  *         return page;
  *     }
  * }

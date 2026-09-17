@@ -23,7 +23,8 @@ com.november.mcphone
 │                            initApps(PhoneApi.registerBuiltins)、postInitApps(loadExternalApps)
 ├── api/                  公开附属 SPI（见 docs/addon-api.md）
 │   ├── IPhoneApp         id/名称/iconTexture/iconItem/iconGlyph/isDirectAction/
-│   │                     onActivate(ctx,shift)/onShiftActivate(ctx)/createPage(ctx)
+│   │                     onActivate(ui,shift)/onShiftActivate(ui)/createPage(ui)
+│   │                     （真签名参数是内部类 client.scene.PhoneUi，不是 PhoneContext）
 │   ├── PhoneContext      运行上下文（PhoneUi 实现了它）：runtime/导航/toast/post/sendToServer/waypoints…
 │   ├── PhoneWidgets      自绘按钮（字号可控+悬停变色）/文本/卡片/信息行/滚动列（回调自动延迟）
 │   ├── PhoneAppBase      附属便捷基类
@@ -88,7 +89,10 @@ com.november.mcphone
   - **聊天 App**（net 包 7-11）：好友申请/同意/拒绝/删除、会话气泡页、离线消息、相册发照片（JPEG 压缩≤8KB 按需拉取）、点好友传送（服务端开关可拒）；存 `mcphone.chat`；配置 config/mcphone-chat.cfg（allowFriendTeleport/allowChatImages/chatImageMaxKb）。GIF 表情包本轮砍掉。
   - **便签服务端持久化**（net 包 12-14）：随存档走（`mcphone.notes`），登录全量同步；本地旧便签首次登录自动导入（本地文件保留为备份）；详情页「印成书」（成书入包/满则掉落；`<存档>/mcphone/notes.cfg` 可开关印书扣空白书与笔，默认免费）。
   - **低成本补齐包**（net 包 15-17）：时钟问候语+游玩时长（里程碑一次性持久化）、天气按群系雨雪+活动建议、设置页主题色/预设壁纸、主屏图标拖拽排序（per-save 持久化）。
-- 附属同步状态：browser 已回归（MCEF 惰性初始化+看门狗条件化，首次打开浏览器大屏才起 CEF，首次打开卡 1-2s 属预期；未初始化时退出零动作）；music 0.2.0 加搜索点歌 UI（桥接 FMusic `/music search` 指令，播放控制仍归 FMusic）；wiki 无改动。三者均用 v1.0.2-master.20 dev jar 重编译通过。
+- 附属同步状态：browser 已回归（MCEF 惰性初始化+看门狗条件化，首次打开浏览器大屏才起 CEF，首次打开卡 1-2s 属预期；未初始化时退出零动作）；music 0.2.0 加搜索点歌 UI（桥接 FMusic `/music search` 指令，播放控制仍归 FMusic）；wiki 无改动。三者均用 v1.0.2-master.20 dev jar（2026-09-08 快照）重编译通过。
+     **勘误（2026-09-17 复核）**：该快照已落后本体一个版本段——`jar tf` 实测快照无
+     `client/enhance/PhoneGlass` 玻璃类，`javap` 实测其 `IPhoneApp` 无 `opensInsidePhone`；
+     刷新本体后附属必须重新取 dev jar（当前为 v1.0.3-beta.3 系）重编译，勿信本条旧记录。
 - MCEF 资源镜像：https://github.com/skyc10/mcef-resources （release v1，42 资源+config2.json 全 SHA-1 校验）；用 research/MCEF-1.7.10-mirror.jar + config/MCEF.cfg `forcedMirror` 启用（见 browser 仓库 MCEF-PATCH-NOTES.md 补丁 3）。
 - 服务端测试实例：/home/c/gtnh-290b3/server（GTNH 2.9.0-beta-3，eula 已设，-Xmx3G；启动/停止见其 README-TEST.md）。集成验证方式：放 jar→启动→日志等 Done→grep mcphone 异常→kill -TERM。
 - 已知限制/待办：
