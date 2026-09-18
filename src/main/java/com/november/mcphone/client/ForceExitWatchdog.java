@@ -67,6 +67,15 @@ import cpw.mods.fml.relauncher.SideOnly;
  * {@code writeFlag} 去掉 synchronized（v3 持锁做文件 I/O，FS 卡顿会拖死三条内部
  * 线程）。</p>
  *
+ * <p><b>v3.4 修正（2026-09-18，t15 / T4-F1+F2）——退出残留死角关闭</b>：
+ * ①外部杀手 deadline 到点时，只要目标进程仍在就 {@code taskkill /F /T} 强杀整树，
+ * 不再「exiting without kill」——这是 P2 残留路径的收口（心跳停跳、Stall 确认轮
+ * 未达标、deadline 仍到点时，原逻辑会安静退出，留下活挂的主 JVM）；②新增
+ * {@code SweepOrphanCef} 清扫：flag/stall/deadline 三处 taskkill 之后，按命令行
+ * 特征（含 {@code mcefmodern}）+「父进程已死」两个条件清理孤儿 jcef_helper /
+ * CefSubprocess——主 JVM 被强杀后 {@code taskkill /T} 沿父 PID 链抓不到孤儿。
+ * 清扫只认 CEF helper 进程特征，<b>绝不</b>按进程名（java.exe）批量杀。</p>
+ *
  * <p><b>v3.3 修正（2026-09-15，本轮）——两个坏档/误杀缺陷</b></p>
  *
  * <p><b>(a) 强杀时钟不再早于世界保存。</b>1.7.10 的退出顺序是
@@ -222,7 +231,7 @@ public final class ForceExitWatchdog {
                 flagFile.delete();
                 touchHb();
             }
-            FileLog.log("=== session start: watchdog v3.3, pid=" + pid
+            FileLog.log("=== session start: watchdog v3.4, pid=" + pid
                 + ", os=" + System.getProperty("os.name")
                 + ", java=" + System.getProperty("java.version"));
         }
@@ -860,7 +869,7 @@ public final class ForceExitWatchdog {
             return;
         }
         StringBuilder vb = new StringBuilder();
-        vb.append("' MCphone external exit watchdog launcher v3.3 (generated, safe to delete)\r\n");
+        vb.append("' MCphone external exit watchdog launcher v3.4 (generated, safe to delete)\r\n");
         // v3.1 生产实锤：wscript 分支没起来且死因被吞（ps1 的 $ErrorActionPreference
         // 也救不了 vbs 自身）。这里 vbs 自己写 launcher 日志：活着/Run 返回/Err 描述，
         // 下次失效可直接分辨"wscript 没执行"vs"vbs 里 Run 失败"。
@@ -919,7 +928,7 @@ public final class ForceExitWatchdog {
         // 确认轮数：每轮 2s；最少 3 轮（保证「连续多轮真实执行」而不是一次误判）。
         int rounds = Math.max(3, (hbConfirmSec + 1) / 2);
         StringBuilder sb = new StringBuilder();
-        sb.append("# MCphone external exit watchdog v3.3 (generated at runtime, safe to delete)\r\n");
+        sb.append("# MCphone external exit watchdog v3.4 (generated at runtime, safe to delete)\r\n");
         sb.append("$ErrorActionPreference = 'SilentlyContinue'\r\n");
         sb.append("$targetPid = ").append(pid).append("\r\n");
         sb.append("$flagFile = ").append(flagPath).append("\r\n");
@@ -940,6 +949,20 @@ public final class ForceExitWatchdog {
         sb.append("    } catch {}\r\n");
         sb.append("    return [long]-1\r\n");
         sb.append("}\r\n");
+        // t15 (T4-F2)：孤儿 CEF helper 清扫。主 JVM 被 taskkill /F 后，CEF 的
+        // OS 子进程成为孤儿（父 PID 指向已死进程），taskkill /T 沿父链抓不到它们；
+        // 这里按「命令行含 mcefmodern（本实例 CEF 运行时特征）且父进程已死」两个
+        // 条件精确匹配，绝不按进程名批量杀、不碰其它实例/应用的 CEF。
+        sb.append("function SweepOrphanCef {\r\n");
+        sb.append("    try {\r\n");
+        sb.append("        $orphans = Get-CimInstance Win32_Process -Filter \"Name='jcef_helper.exe' OR Name='CefSubprocess.exe'\" | Where-Object { ($_.CommandLine -like '*mcefmodern*') -and ((Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) -eq $null) }\r\n");
+        sb.append("        foreach ($o in $orphans) {\r\n");
+        sb.append("            KLog ('sweep orphan CEF helper pid=' + $o.ProcessId + ' parent=' + $o.ParentProcessId)\r\n");
+        sb.append("            taskkill /F /PID $o.ProcessId | Out-Null\r\n");
+        sb.append("            KLog ('sweep taskkill rc=' + $LASTEXITCODE)\r\n");
+        sb.append("        }\r\n");
+        sb.append("    } catch { }\r\n");
+        sb.append("}\r\n");
         sb.append("KLog ('=== ext-killer start pid=' + $targetPid + ' pid$=' + $PID + ' flagGrace=' + $flagGraceSec + 's hbStall=' + $hbStallSec + 's hbConfirm=' + $hbConfirmSec + 's rounds=' + $confirmRounds)\r\n");
         // 寿命与会话时长解耦（v3.1 教训：固定 5 分钟 TTL 在长会话退出前自毁，
         // flag 写下时已无杀手读它）。deadline 只由心跳新鲜度顺延：hb mtime 比
@@ -956,6 +979,7 @@ public final class ForceExitWatchdog {
         sb.append("            KLog 'target still alive after grace, taskkill'\r\n");
         sb.append("            taskkill /F /T /PID $targetPid | Out-Null\r\n");
         sb.append("            KLog ('taskkill (flag) rc=' + $LASTEXITCODE)\r\n");
+        sb.append("            SweepOrphanCef\r\n");
         sb.append("        } else { KLog 'target gone during grace, no kill needed' }\r\n");
         sb.append("        break\r\n");
         sb.append("    }\r\n");
@@ -1012,12 +1036,25 @@ public final class ForceExitWatchdog {
         sb.append("                    KLog ('no heartbeat progress over ' + ($confirmRounds * 2) + 's of execution-guarded rounds (observer cpu +' + [math]::Round($selfMs) + 'ms, target cpu +' + [math]::Round($cpuMs) + 'ms, target pid alive) -> taskkill')\r\n");
         sb.append("                    taskkill /F /T /PID $targetPid | Out-Null\r\n");
         sb.append("                    KLog ('taskkill (stall) rc=' + $LASTEXITCODE)\r\n");
+        sb.append("                    SweepOrphanCef\r\n");
         sb.append("                    break\r\n");
         sb.append("                }\r\n");
         sb.append("            }\r\n");
         sb.append("        }\r\n");
         sb.append("    }\r\n");
-        sb.append("    if ((Get-Date) -gt $deadline) { KLog 'deadline reached with stale/missing heartbeat, exiting without kill'; break }\r\n");
+        // t15 (T4-F1)：deadline 到点不再是「exiting without kill」——只要目标
+        // 进程仍在（= 内部看门狗线程已死/冻、flag 也没写成的最后残留场景），
+        // 必须强杀整树后收工。原有守卫全部保留：hb 新鲜时 deadline 每 2s 顺延
+        // 永不到点；Stall 确认轮仍先于本分支执行；OS 挂起误杀守卫不变。
+        sb.append("    if ((Get-Date) -gt $deadline) {\r\n");
+        sb.append("        if (Get-Process -Id $targetPid) {\r\n");
+        sb.append("            KLog 'deadline reached but target still alive -> not exiting without kill, killing tree'\r\n");
+        sb.append("            taskkill /F /T /PID $targetPid | Out-Null\r\n");
+        sb.append("            KLog ('taskkill (deadline) rc=' + $LASTEXITCODE)\r\n");
+        sb.append("            SweepOrphanCef\r\n");
+        sb.append("        } else { KLog 'deadline reached, target gone, exiting without kill' }\r\n");
+        sb.append("        break\r\n");
+        sb.append("    }\r\n");
         sb.append("    Start-Sleep -Seconds 2\r\n");
         sb.append("}\r\n");
         sb.append("KLog 'ext-killer exit'\r\n");
