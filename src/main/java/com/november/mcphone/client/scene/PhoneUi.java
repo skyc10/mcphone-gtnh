@@ -233,9 +233,10 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     private SceneNode homeBar;
 
     /**
-     * 导航栏三个整格节点（上游 NAV_ORDER = {BACK, HOME, TASKS} 的同一顺序）。
+     * 导航栏整格节点，索引语义 0=◁ 返回 / 1=○ 主屏（第三键 □ 任务已按用户要求删除，
+     * 上游 NavButton.TASKS 本就未实现，见 NAV_GLYPHS 上方注释）。
      *
-     * <p>每次整壳重建都会重新赋值（buildNavigationBar 里新建三个）；不是 static：
+     * <p>每次整壳重建都会重新赋值（buildNavigationBar 里逐键新建）；不是 static：
      * 全屏与常显 HUD 是两个独立实例，字段必须跟实例走。</p>
      */
     private SceneNode[] navKeys;
@@ -618,11 +619,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         panel.appendChild(contentSlot);
     }
 
-    // ===================== 底部导航栏三键（版式抄上游 v1.10.2） =====================
+    // ===================== 底部导航栏（◁ 返回 / ○ 主屏，版式抄上游 v1.10.2） =====================
     // 上游（november521/mcphone @ tag v1.10.2，只读参考 clone <upstream-mcphone>）：
     //   PhoneChassis.java:208   NAV_GLYPHS = {"◁", "○", "□"}
     //   PhoneChassis.java:205   NAV_ORDER  = {BACK, HOME, TASKS}（左=返回 / 中=主屏 / 右=任务）
-    //   PhoneChassis.java:255-298 drawNavKeys：三键沿导航条长边等分，字符版居中画，
+    //   PhoneChassis.java:255-298 drawNavKeys：各键沿导航条长边等分，字符版居中画，
     //                             贴图版按【设计尺寸 NAV_ICON_WIDTH×NAV_BAR_HEIGHT】画、不撑满格子。
     //   NavBarLayout.java:49-61 cellFrom/cellTo = span/cells*i（等分，余数归最后一格）
     //   PhoneTheme.java:238     NAV_BAR_HEIGHT  = 14
@@ -630,13 +631,16 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     //   PhoneTheme.java:63      FONT_COLOR_NAV       = 0xFF888888（中灰）
     //   PhoneTheme.java:66      FONT_COLOR_NAV_HOVER = 0xFFFFFFFF
     //   PhoneTheme.java:115     COLOR_ROW_HOVER      = 0x33FFFFFF（悬停垫在整格下面）
+    // 第三键 □（TASKS）按用户要求删除：上游 NavButton.TASKS 的注释就是「多任务，暂未实现」
+    // （PhoneChassis.java:197），点击无行为，故不保留无功能占位键；NAV_GLYPHS 只留前两键，
+    // 索引语义变为 0=返回 / 1=主屏（上游 NAV_ORDER 的前两项不变）。
     // 我们的面板宽是动态的（panelW ≈ 260 起），上游是固定 120 GUI，所以“一格 40 GUI”这种
-    // 绝对宽度在这里没有意义：能照搬的是【等分】这条结构规则（每键 span/3）与【设计尺寸
+    // 绝对宽度在这里没有意义：能照搬的是【等分】这条结构规则（每键 span/键数）与【设计尺寸
     // 不撑满格子】这条绘制规则。字号走面板无关量 NAV_GLYPH_SIZE_GUI × fs(16)，免得面板
     // 一宽字号就跟着膨胀。
 
-    /** 导航键字符（与上游 NAV_GLYPHS 逐字相同：空心左三角 / 空心圆 / 空心方框）。 */
-    private static final String[] NAV_GLYPHS = {"\u25C1", "\u25CB", "\u25A1"};
+    /** 导航键字符（与上游 NAV_GLYPHS 前两键逐字相同：空心左三角 / 空心圆；第三键 □ 已删）。 */
+    private static final String[] NAV_GLYPHS = {"\u25C1", "\u25CB"};
 
     /**
      * 导航键字形相对 {@code fs(16)} 的比例。
@@ -666,21 +670,22 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     /**
-     * 底部导航栏：<b>三个等宽键</b> ◁ ○ □（版式抄上游 v1.10.2）。
+     * 底部导航栏：<b>两个等宽键</b> ◁ ○（版式抄上游 v1.10.2；第三键 □ 任务按用户要求删除，
+     * 上游本就未实现，理由见 NAV_GLYPHS 上方注释）。
      *
-     * <p>三个键沿条长边三等分（上游 NavBarLayout.cellFrom/cellTo）：中间那个吃掉除不尽
-     * 的余数，保证“画在哪儿”与“点得到哪儿”完全同源 —— 这里用 flexGrow(1) 表达同一件事，
+     * <p>两个键沿条长边对半等分（上游 NavBarLayout.cellFrom/cellTo 的等分规则），
+     * 保证“画在哪儿”与“点得到哪儿”完全同源 —— 这里用 flexGrow(1) 表达同一件事，
      * 布局求解器给出的格子就是命中测试用的格子，不存在看得见点不到的分歧。</p>
      *
      * <p><b>玻璃保留</b>：整条照旧走 {@link #glassifySurfaceOnly}（STATUS 档底色、不挂 backdrop），
-     * 本轮一个字都没动玻璃语义（上游那条是纯实心 COLOR_NAV_BAR，用户明确要求保留我们的玻璃）。</p>
+     * 玻璃语义零改动（上游那条是纯实心 COLOR_NAV_BAR，用户明确要求保留我们的玻璃）。</p>
      */
     private void buildNavigationBar() {
         homeBar = SceneNode.row();
         homeBar.setFillParentWidth(true);
         homeBar.setCrossAxisAlign(CrossAxisAlign.CENTER);
         homeBar.setMainAxisAlign(MainAxisAlign.CENTER);
-        // 三键等宽撑满整条：去掉上下左右 padding（上游三键各占屏幕宽的 1/3，边缘没有内缩）。
+        // 两键等宽撑满整条：去掉上下左右 padding（上游各键等分屏幕宽，边缘没有内缩）。
         homeBar.setPadding(0, 0, 0, 0);
         homeBar.setGap(0);
         // 导航条 = 条状小面，同状态栏档底色（DARK_ULTRA_THIN）。**不挂 backdrop**（同状态栏：
@@ -690,7 +695,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         // 高，我们这里由字号定高，面板尺寸一变条跟着变，正是 PhoneTheme 注释里“条的高矮
         // 由字号定”的同一条理由）。
         homeBar.setPreferredHeight(measurer.lineHeight(navGlyphFontSize()) + 12);
-        // 上游 NAV_ORDER = {BACK, HOME, TASKS}，顺序不能换（左=返回、中=主屏、右=任务）。
+        // 键序沿上游 NAV_ORDER 前两项：左=◁ 返回、右=○ 主屏（第三键 □ 任务已删除）。
         navKeys = new SceneNode[NAV_GLYPHS.length];
         for (int i = 0; i < NAV_GLYPHS.length; i++) {
             navKeys[i] = mountNavKey(homeBar, i);
@@ -700,11 +705,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     /**
-     * 挂第 {@code keyIndex} 个导航键（0=◁ 返回 / 1=○ 主屏 / 2=□ 任务），返回整格节点。
+     * 挂第 {@code keyIndex} 个导航键（0=◁ 返回 / 1=○ 主屏），返回整格节点。
      *
      * <p>字形用字符而不是自绘：Qz 4.10.0 的渲染出口 UiRenderBackend 只有
      * {@code fillRect / drawSurface / drawBorder / drawImage / drawText}，<b>没有</b>画线/路径/三角形/圆弧
-     * 的能力（javap qz_uilib-4.10.0.jar 核对），所以空心 ◁○□ 只能走字形（上游也是字形）。</p>
+     * 的能力（javap qz_uilib-4.10.0.jar 核对），所以空心 ◁○ 只能走字形（上游也是字形）。</p>
      */
     private SceneNode mountNavKey(SceneNode bar, int keyIndex) {
         final int index = keyIndex;
@@ -740,18 +745,19 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     }
 
     /**
-     * 导航键行为映射（上游 NavButton 三语义 → 我们现有的等价行为）。
+     * 导航键行为映射（上游 NavButton 前两语义 → 我们现有的等价行为）。
      *
      * <ul>
      *   <li><b>◁ BACK</b>：有 App 页开着 ⇒ {@link #backHome()}（返回主屏）；已在主屏 ⇒
      *       {@link #closePhone()}（= 上游 BACK 的“退回上一层”，主屏的上一层就是收起手机）。</li>
      *   <li><b>○ HOME</b>：{@link #backHome()}，与上游 NavButton.HOME 逐字对应。</li>
-     *   <li><b>□ TASKS</b>：上游 v1.10.2 里 NavButton.TASKS 的枚举注释就写着「多任务，<b>暂未实现</b>」
-     *       （PhoneChassis.java:197），点击不做事。我们同样保留为占位键（只做悬停反馈），不接任何行为
-     *       —— 版式与上游一致，也不会凭空发明语义。</li>
      * </ul>
      *
-     * <p>三路都经 {@link #postAction} 延迟（runtime 的 CLICK 回调转成 post），与 {@link #activate}
+     * <p>上游第三键 □（TASKS）按用户要求删除，不再保留无行为分支：上游 v1.10.2 里
+     * NavButton.TASKS 的枚举注释就写着「多任务，<b>暂未实现</b>」（PhoneChassis.java:197），
+     * 点击本就不做事。</p>
+     *
+     * <p>两路都经 {@link #postAction} 延迟（runtime 的 CLICK 回调转成 post），与 {@link #activate}
      * 同一口径：输入分发期间改树会让 Qz 路由 CME（踩坑 #3）。</p>
      */
     private void activateNavKey(int keyIndex) {
@@ -765,9 +771,6 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
                 return;
             case 1:
                 backHome();
-                return;
-            default:
-                // 上游 TASKS 未实现，这里同样什么都不做（键仍然画、仍然有悬停反馈）。
                 return;
         }
     }
@@ -856,7 +859,7 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         // 【为什么去掉了旧的 homeBar.setOpacity(0.35f/1.0f)】上游导航条在主屏
         // 与 App 页上是同一个不透明度（PhoneChassis.drawNavBar 里没有任何整条 opacity），
         // 只有「当前这一键」有状态。而且旧值会和返回键自己的压暗相乘（0.35² ≈ 0.12，
-        // 三键里左边那个几乎看不见）—— 三键布局下这个组合是错的。
+        // 返回键几乎看不见）—— 这个组合是错的。
         refreshNavKeyStates();
     }
 
@@ -884,19 +887,18 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     // “图标占屏宽 1/6”的版式完全不同。所以这里把上游布局对面板宽归一化：
     //   guiScale = panelW / 120.0        ⇐ 120 = 上游屏幕可绘制区宽（GUI）
     //   APP_ICON_SIZE    × guiScale = 20  GUI → 实际像素
-    //   APP_GRID_STEP_X  × guiScale = 28  GUI
     //   APP_GRID_STEP_Y  × guiScale = 29  GUI
     //   APP_GRID_PADDING_LEFT × guiScale = 8 GUI
-    // 这样「4 列、列步距 28、行步距 29、首列距屏左 8」四项比例全部逐字跟上游，而绝对值随面板走。
+    // 列宽/列步距（上游 APP_GRID_STEP_X = 28 GUI）不再照搬：4×固定步距在动态面板宽下
+    // 会超出网格可用宽（Qz 不收缩显式钉宽的节点，第 4 格曾被 grid.setClipChildren 裁半），
+    // 改为把可用宽（panelW - 左右内边距）按 4 列等分、每格取整余数忽略（见 buildHomeGrid 的 cellW）。
+    // 这样「4 列、行步距 29、首列距屏左 8」跟上游，列宽改为恰好铺满可用宽。
 
     /** 上游屏幕可绘制区宽（GUI）：_r2_shots.md §3.1 实测 120×190。 */
     private static final double UPSTREAM_SCREEN_W_GUI = 120.0;
 
     /** App 图标边长（GUI，上游 APP_ICON_SIZE = 20）。 */
     private static final int APP_ICON_SIZE_GUI = 20;
-
-    /** 图标列步距（GUI，上游 APP_ICON_SIZE + APP_GRID_SPACING_X = 28）。 */
-    private static final int APP_GRID_STEP_X_GUI = 28;
 
     /** 图标行步距（GUI，上游实测 116px = 29）。 */
     private static final int APP_GRID_STEP_Y_GUI = 29;
@@ -925,13 +927,16 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     private static final int ICON_BOX_RADIUS_DIVISOR = 8;
 
     /**
-     * 主屏网格：<b>4 列</b>、图标 <b>20 GUI</b>、列步距 <b>28 GUI</b>、行步距 <b>29 GUI</b>、
-     * 整排居中。相对上游只改了一件事：尺寸由固定 GUI 改成按面板宽归一化
-     * （理由见上方常量段）。</p>
+     * 主屏网格：<b>4 列</b>、图标 <b>20 GUI</b>、行步距 <b>29 GUI</b>、整排居中；
+     * 每格宽 = 网格可用宽的 1/4（面板自适应）。相对上游改了两件事：尺寸由固定 GUI 改成
+     * 按面板宽归一化（理由见上方常量段）；列宽不再用固定步距 28 GUI，而是「可用宽 ÷ 4」
+     * 等分（每格取整、余数忽略）—— 固定 4×stepX 会超出可用宽，Qz 布局不收缩显式钉宽节点，
+     * 第 4 格曾被 grid.setClipChildren(true) 裁掉一半（2026-09 用户实测），等分后
+     * 4×cellW ≤ 可用宽恒成立，一行 4 格恰好铺满。
      *
      * <p><b>不回归</b>：拖拽排序、点击打开（UP 现算落点 + 同格补发激活）、滚动
-     * （SceneScrolls.attach）全部保留：单元格还是那个单元格（iconCell），只是尺寸参数变了；
-     * 拖拽命中全部建立在 SceneGeometry.absoluteBox 与手势阈值上，与宽高无关；
+     * （SceneScrolls.attach）全部保留：单元格还是那个单元格（iconCell），只是宽度来源变了；
+     * 拖拽命中全部建立在 SceneGeometry.absoluteBox 与手势阈值上，与宽度怎么来的无关；
      * setScrollable/SceneScrolls.attach 一行未动。</p>
      */
     private void buildHomeGrid() {
@@ -940,12 +945,19 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         // 上游布局对面板宽归一化：120 GUI 屏 → panelW 场景像素。
         final double guiScale = panelW / UPSTREAM_SCREEN_W_GUI;
         final int iconSize = Math.max(12, (int) Math.round(APP_ICON_SIZE_GUI * guiScale));
-        final int stepX = Math.max(iconSize + 4, (int) Math.round(APP_GRID_STEP_X_GUI * guiScale));
         final int stepY = Math.max(iconSize + 6, (int) Math.round(APP_GRID_STEP_Y_GUI * guiScale));
         // 上游一行几格 = HomeLayout.cellsThatFit(屏宽, 列步距, 上限)；
         // 手机 120 宽 / 28 = 4（上游 PhoneTheme.java:260 注释“手机 120 宽正好 4 个”）。
         final int perRow = 4;
         final int maxRows = APP_ROWS_MAX;
+
+        // 每格宽 = 网格可用宽 ÷ perRow（取整、余数忽略）：网格容器 fillParentWidth、左右内边距
+        // 各 APP_GRID_PAD_LEFT_GUI（面板与内容槽都无 padding），可用宽恰为
+        // panelW - 2*APP_GRID_PAD_LEFT_GUI ⇒ 4*cellW ≤ 可用宽恒成立，一行 4 格恰好铺满、
+        // 永不横向溢出；图标盒（iconSize 宽）在格内居中，图标/格宽 ≈ (panelW/6)/(panelW/4) = 2/3，
+        // 与上游 20/28 ≈ 0.71 同量级。cellW 同时是标签 setMaxTextWidth 的上限。
+        final int availW = Math.max(perRow, panelW - 2 * APP_GRID_PAD_LEFT_GUI);
+        final int cellW = availW / perRow;
 
         SceneNode grid = SceneNode.column();
         grid.setFillParentWidth(true);
@@ -1003,12 +1015,15 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             row.setFillParentWidth(true);
             row.setMainAxisAlign(MainAxisAlign.CENTER);
             row.setCrossAxisAlign(CrossAxisAlign.CENTER);
-            row.setGap(Math.max(0, stepX - iconSize));
+            // 格宽已钉死为 cellW 且 4*cellW ≤ 行内宽 ⇒ 格间 gap 必须为 0（任何 gap 都会把
+            // 行内容重新顶出可用宽）；尾行不满 4 格时仍由 CENTER 整排居中（与旧版式一致）。
+            row.setGap(0);
             // 固定行高先验：避免布局求解器把单元格拉伸（与改动前同口径）。
             row.setPreferredHeight(rowH);
             for (int j = 0; j < perRow && i + j < apps.size(); j++) {
-                // 单元宽 = 列步距（上游 HomeGrid.appCellWidth = 28）；标签宽度与拖拽命中都跟它。
-                row.appendChild(iconCell(apps.get(i + j), stepX, iconSize, cellNodes, cellIds, drag));
+                // 单元宽 = 可用宽的 1/4（替代上游固定 appCellWidth = 28，理由见 cellW 注释）；
+                // 标签宽度与拖拽命中都跟它。
+                row.appendChild(iconCell(apps.get(i + j), cellW, iconSize, cellNodes, cellIds, drag));
             }
             grid.appendChild(row);
         }
@@ -1089,6 +1104,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         cellIds.add(app.id());
         SceneNode cell = SceneNode.column();
         cell.setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        // 每格钉死等宽（可用宽 ÷ 4，见 buildHomeGrid 的 cellW）：Qz 布局里显式 preferredWidth
+        // 是最高优先级（SizingCalculator.computeWidth 首分支，压过 SHRINK/内容回收/min-max 钳制），
+        // 一行 4 格恰好铺满网格可用宽，第 4 格不再被 grid.setClipChildren 裁掉；
+        // 图标盒与标签由格的 CrossAxisAlign.CENTER 水平居中。
+        cell.setPreferredWidth(cellW);
         cell.setCrossAxisAlign(CrossAxisAlign.CENTER);
         cell.setGap(6);
         cellNodes.add(cell);
