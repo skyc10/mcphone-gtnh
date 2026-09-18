@@ -1,6 +1,6 @@
-# 星门规则版手测清单（stargate-rules 分支）
+# 星门规则版手测清单（v1.0.4 起默认档）
 
-适用：mcphone 星门合规版（`stargate-rules` 分支）。本清单覆盖**默认档位**（星门认证跑）下的受限行为、**开启后**的行为，以及**恢复 master 体验**的配置示例。配置类：`com.november.mcphone.core.StargateConfig`；配置文件：`config/mcphone-stargate.cfg`。
+适用：mcphone **v1.0.4 及以后**（原 `stargate-rules` 分支已并入 `master`，默认即星门合规档）。本清单覆盖**默认档位**（星门认证跑）下的受限行为、**开启后**的行为，以及**关闭星门限制（恢复自由档）**的配置示例。配置类：`com.november.mcphone.core.StargateConfig`；配置文件：`config/mcphone-stargate.cfg`。
 
 ## 0. 准备
 
@@ -64,7 +64,7 @@ ae2 {
 - [ ] `registerWirelessTerminal=true` 但环境无 AE2 → 提示「未检测到 AE2」。
 - [ ] 放开后 ≤20 秒（或重进世界）：被放开的 App 图标重新出现——`registerWirelessTerminal` 或 `builtinTerminal` 任一为 true → ME App 显示；`enderchest.enabled=true` → 末影箱显示。
 
-## 3. 恢复 master 体验（配置示例）
+## 3. 关闭星门限制（恢复自由档，配置示例）
 
 ```properties
 ae2 {
@@ -81,8 +81,8 @@ enderchest {
 }
 ```
 
-- [ ] 传送点不限量、无冷却、可跨维度；末影箱直开可用；AE2 行为与 master 一致。
-- [ ] 注意：恢复 master 体验即偏离星门认证档位，**不得用于认证跑**；是否合规自行向 GTNH staff 报备（见 `docs/STARGATE-RULES.md` 第 4 节）。
+- [ ] 传送点不限量、无冷却、可跨维度；末影箱直开可用；AE2 行为与自由档一致。
+- [ ] 注意：关闭星门限制即偏离认证档位，**不得用于认证跑**；是否合规自行向 GTNH staff 报备（见 `docs/STARGATE-RULES.md` 第 4 节）。
 
 ## 4. 已知设计（非缺陷）
 

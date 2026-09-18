@@ -5,7 +5,7 @@ English | [简体中文](README.md)
 > [!NOTE]
 > This is the English readme. The project's default page is [简体中文 (README.md)](README.md).
 
-A working smartphone inside GTNH — take photos, browse a gallery, change wallpapers, jot notes, teleport between multiple waypoints, connect straight to an AE2 Quantum/Universal Wireless Terminal, launch any app with a custom hotkey, and keep a mini phone always on screen as a HUD. You can even name your phone.
+A working smartphone inside GTNH — take photos, browse a gallery, change wallpapers, jot notes, teleport between multiple waypoints, connect straight to an AE2 Quantum/Universal Wireless Terminal, launch any app with a custom hotkey, and keep a mini phone always on screen as a HUD. You can even name your phone. **The default profile is already GTNH Stargate-rules compliant**: gameplay features beyond the official servers' QoL provision ship disabled or limited, and one config file lifts those limits (see [Stargate rules configuration](#stargate-rules-configuration-default-profile)).
 
 > **What is this**: skyc10, with the help of an AI coding assistant, **ported and rewrote** [november521/mcphone](https://github.com/november521/mcphone) (the original, mainline: Minecraft 1.21.1 + NeoForge) for **GTNH 2.9** — the original mod is by november521; this repository (skyc10) maintains the GTNH port.
 > Target environment: **GTNH 2.9.0-beta-3** (Minecraft 1.7.10 + Forge 1614, Java 17+ runtime, lwjgl3ify).
@@ -13,13 +13,16 @@ A working smartphone inside GTNH — take photos, browse a gallery, change wallp
 
 **Minecraft 1.7.10** · **GTNH 2.9.0-beta-3** · Install on both client and server
 
+> **Going for the GTNH Stargate role? This build is already the one you want** — the default profile is Stargate-compliant (AE2 wireless terminal and ender chest off; 3 waypoints / 30s cooldown / no cross-dimension).
+> **Do not want the limits?** Edit `config/mcphone-stargate.cfg` to turn them off — see [Stargate rules configuration](#stargate-rules-configuration-default-profile); the per-feature assessment and ready-made wording for asking GTNH staff are in [docs/STARGATE-RULES.md](docs/STARGATE-RULES.md) (Chinese).
+
 **Dependency**:
 
 | Mod | Notes |
 | --- | --- |
 | [Qz-UILib](https://github.com/QuanhuZeYu/Qz-UILib) (**4.10.0+**) | **Required**. A modern scene UI library built for GTNH — the entire phone UI runs on it. **Minimum version is 4.10.0**: only 4.10.0+ is **pair-compatible** with this build (Qz itself states 4.9.x must not be mixed — public API removals included — so the two must be upgraded together), and 4.9.0+ first shipped the Liquid Glass interfaces (`UiBackdrop` / `UiGlassMaterial` etc.). Installing 4.9.x / 4.8.x makes mcphone fail to load with an unsatisfied dependency. If the library does not publish build artifacts, grab it from this project's Releases |
 
-**Integration**: the ME Terminal app depends on **AE2** and **ae2fc** (Ultra Wireless Terminal) — both ship with the GTNH modpack, no extra install needed. In a GTNH instance with them installed, the phone can bind by sneak + right-clicking an ME Security Station, and the ME Terminal icon opens the Ultra Wireless Terminal's full interface directly.
+**Integration**: the ME Terminal app depends on **AE2** and **ae2fc** (Ultra Wireless Terminal) — both ship with the GTNH modpack, no extra install needed. In a GTNH instance with them installed, the phone can bind by sneak + right-clicking an ME Security Station, and the ME Terminal icon opens the Ultra Wireless Terminal's full interface directly. **Note: this feature is disabled by the default Stargate-compliant profile** (`[ae2] registerWirelessTerminal=false`, and the icon is hidden from the home screen) — see [Stargate rules configuration](#stargate-rules-configuration-default-profile) to lift it.
 
 ---
 
@@ -44,9 +47,9 @@ Hold it and right-click to power on; with the phone in your inventory, **P** als
 | 🕐 Clock | Large world-time display, kept in sync with the status bar |
 | ☀️ Weather | Current biome, rain/thunder, day-night state |
 | 📝 Notes | Quick notes stored in `.minecraft/mcphone/notes/` (shared across saves), with create/edit/delete |
-| 📦 Ender Chest | One-click access: closes the phone and opens your ender chest, fully vanilla-compatible |
-| 🌀 Teleport | Built-in teleportation — **no Charm of Dislocation needed**. The icon opens a waypoint list: bind current position (or Shift+click the icon to bind quickly), one-click teleport (cross-dimension supported), rename, delete. Waypoints are stored in the phone's NBT |
-| 📡 ME Terminal | Direct AE2 access. With an **Ultra Wireless Terminal** in your inventory it is auto-swapped into your hand and its full interface opens, then swapped back on close; without one, the phone's built-in item terminal opens (power is free). Bind by sneak + right-clicking an ME Security Station with the phone |
+| 📦 Ender Chest | One-click access: closes the phone and opens your ender chest, fully vanilla-compatible (**off in the default Stargate profile**, `[enderchest] enabled`) |
+| 🌀 Teleport | Built-in teleportation — **no Charm of Dislocation needed**. The icon opens a waypoint list: bind current position (or Shift+click the icon to bind quickly), one-click teleport, rename, delete. Waypoints are stored in the phone's NBT. **Default Stargate profile: 3 waypoints / 30s cooldown / no cross-dimension** (`[teleport]`, configurable) |
+| 📡 ME Terminal | Direct AE2 access. With an **Ultra Wireless Terminal** in your inventory it is auto-swapped into your hand and its full interface opens, then swapped back on close; without one, the phone's built-in item terminal opens. Bind by sneak + right-clicking an ME Security Station with the phone. **Off by default in the Stargate profile** (icon hidden from the home screen; once enabled, the built-in terminal follows the bound ME network's real power instead of being free) |
 | 📷 Camera | Viewfinder + key capture. Defaults: **C** shoot, **P** back to the phone (rebindable). Photos contain only the world — HUD, minimap, hotbar and crosshair never appear |
 | 🖼 Gallery | Thumbnail grid, full-size viewer, delete, one-click set-as-wallpaper. Photos live in `.minecraft/mcphone/photos/` (**shared across saves**) — you can also drop any PNG into that folder and the gallery reads it |
 | ⚙️ Settings | Device naming, wallpaper reset, plus **UI size** (50–150%), **font size** (50–500%) and **button text size** (50–250%) sliders — applied on release, great for high-resolution displays |
@@ -63,6 +66,60 @@ Hold it and right-click to power on; with the phone in your inventory, **P** als
 | G | Toggle the always-on HUD |
 | Per-app hotkeys | Bind yourself in the App Manager, see the table above |
 
+## Stargate rules configuration (default profile)
+
+This mod is made **GTNH Stargate-rules compliant**: gameplay features that go beyond the official servers' QoL provision **ship disabled or limited by default**, satisfying the rule that custom mods must not substantially impact gameplay. The full per-feature assessment, official links and ready-made wording for asking GTNH staff are in **[docs/STARGATE-RULES.md](docs/STARGATE-RULES.md)** (Chinese).
+
+| Feature | Default state |
+| --- | --- |
+| 📡 ME Terminal (direct AE2 wireless access) | **Off** (`[ae2] registerWirelessTerminal=false`) — icon hidden from the home screen and HUD |
+| Built-in fallback item terminal | **Off** (`[ae2] builtinTerminal=false`) |
+| 🌀 Waypoint count | **3** (`[teleport] maxWaypoints=3`) |
+| Teleport cooldown | **30 s** (`[teleport] cooldownSeconds=30`) |
+| Cross-dimension teleport | **Denied** (`[teleport] crossDimension=false`) |
+| 📦 Ender chest access | **Off** (`[enderchest] enabled=false`) |
+| 💬 Chat teleport-to-friend | Kept (`[chat] friendTeleport=true`, mirrors the official `/tp`-to-player provision) |
+| Clock / weather / notes / camera / gallery / HUD | Unaffected — pure QoL, allowed by the rules |
+
+### How to turn the Stargate rules off (free profile)
+
+For single-player, relaxed servers, or once GTNH staff have approved your setup, just edit the config file — no rebuild, no jar swap, and changes apply **without restarting** (lazy load + mtime cache; app icons reappear at the latest after rejoining the world).
+
+- Single-player / LAN: `.minecraft/config/mcphone-stargate.cfg`
+- Dedicated server: `<server root>/config/mcphone-stargate.cfg`
+- The file is generated with comments on first run; **on a multiplayer server the server-side file wins** (a client-side edit does not override the server's verdict).
+
+**① Lift AE2 only**:
+
+```properties
+ae2 {
+    registerWirelessTerminal=true
+    builtinTerminal=true
+}
+```
+
+**② Turn off every Stargate limit (the old free-play profile)**:
+
+```properties
+ae2 {
+    registerWirelessTerminal=true
+    builtinTerminal=true
+}
+teleport {
+    maxWaypoints=2147483647
+    cooldownSeconds=0
+    crossDimension=true
+}
+enderchest {
+    enabled=true
+}
+```
+
+Set `[chat] friendTeleport` to `false` if you also want chat teleport-to-friend gone.
+
+> Key names are frozen (server and client read the same names); **renaming a key silently invalidates old configs and falls back to the strictest defaults**.
+> ⚠️ Lifting the limits moves you off the Stargate-compliant profile — **keep the defaults for an actual Stargate run**; compliance is ultimately judged by the official rulebook and GTNH staff.
+
 ## For developers / AI handover
 
 Architecture, pitfall notes, build/release workflow and conventions: **[docs/AI-DEV-NOTES.md](docs/AI-DEV-NOTES.md)** (Chinese). General GTNH build/debug/dependency notes: [docs/gtnh-dev-guide.md](docs/gtnh-dev-guide.md). Addon development: [docs/addon-api.md](docs/addon-api.md). The full development history lives on the `dev-history` branch.
@@ -74,6 +131,7 @@ Architecture, pitfall notes, build/release workflow and conventions: **[docs/AI-
 | Photos / wallpaper | `.minecraft/mcphone/photos/` (drop PNGs in and the gallery reads them) |
 | Notes | `.minecraft/mcphone/notes/` |
 | Phone settings (scaling / icon order / app toggles) | `.minecraft/mcphone/settings.properties` |
+| Stargate rules config (gameplay switches; the server-side file wins on multiplayer) | single-player `.minecraft/config/mcphone-stargate.cfg` / dedicated `<server root>/config/mcphone-stargate.cfg` |
 | Addon app config | `.minecraft/mcphone/appdata/<appId>.properties` |
 
 All of the above are **shared across saves** (client-local).
