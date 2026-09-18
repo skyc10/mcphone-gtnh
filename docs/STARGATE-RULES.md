@@ -161,3 +161,6 @@ or should I keep any of them disabled for the run?
 | 末影箱直开 | 可用 | 默认关闭（`[enderchest] enabled`） |
 | 聊天好友传送 | 可用 | 保持可用（`[chat] friendTeleport`，对齐官方 /tp） |
 | 配置文件 | 无此文件 | `config/mcphone-stargate.cfg`（自动生成，免重启热读） |
+| 被禁 App 的展示 | 照常显示图标，点击后服务端拒绝并提示 | **主屏与常显 HUD 直接不显示**（`StargateSync` 名单同步，配置改动 ≤20 秒生效；旧服务端安全退化为照常显示） |
+
+> 2026-09-18 追加：本分支另含三处 UI 修复/调整（master 暂无）——主屏标签单行化（长名不再折行导致图标错位）、联动App 页几何随面板归一化（修文字与行重叠）、时钟页时长口径改为「玩家总游玩时长 / 服务器时长」。待测项见 `docs/TESTING-STARGATE.md` §1.5。
