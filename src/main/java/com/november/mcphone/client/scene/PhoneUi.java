@@ -920,6 +920,16 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     private static final int APP_LABEL_GAP = 4;
 
     /**
+     * 主屏标签声明字号：行高预算（buildHomeGrid 的 labelH）与 iconCell 实挂字号共用这本账
+     * （t6 统一：改动前预算按 fs(13)、标签实挂 fs(14)，长名折行后行内容超出 rowH，
+     * 各行图标垂直错位——用户截图二）。
+     */
+    private static final int APP_LABEL_FONT_SIZE_GUI = 13;
+
+    /** 主屏标签自适应缩小的声明字号下限：再小可读性崩坏，宁可省略号截断。 */
+    private static final int APP_LABEL_FONT_MIN_GUI = 9;
+
+    /**
      * 图标盒圆角除数：{@code box / 8}（改动前 {@code box / 3}）。
      * 上游图标无自绘圆角（贴图自带透明角，IPhoneApp.java:42-47），
      * 这里是玻璃风格下的收敛值；最小 2px 保证小面板上不变成直角。
@@ -1002,10 +1012,11 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         for (int i = 0; i < apps.size(); i += perRow, rowIndex++) {
             // 行的高 = 图标 + 图标与名字的间距 + 名字行高（上游
             // HomeGrid.appCellHeight = APP_ICON_SIZE + (int)(lineHeight*APP_NAME_SCALE) + 4 同口径；
-            // 上游用 APP_NAME_SCALE=0.6f，我们用已有的 fs(13) 标签字号，两者字高相当）。
+            // 上游用 APP_NAME_SCALE=0.6f，我们用 fs(APP_LABEL_FONT_SIZE_GUI)——与 iconCell
+            // 标签实际字号同一本账（t6 统一；标签已单行化，预算不再被折行的第二行撑爆）。
             // 这里用【固定图标盒 + 真实标签行高】而不直接用 stepY：行与行之间的固定
             // 留白已经含在 stepY 里（上游 29 = 20 + 5.4 + 4），不能再重复计一次。
-            final int labelH = measurer.lineHeight(fs(13));
+            final int labelH = measurer.lineHeight(fs(APP_LABEL_FONT_SIZE_GUI));
             final int rowH = Math.min(stepY,
                 iconSize + APP_LABEL_GAP + labelH);
             // 行与行之间的间距已含在行高里（上游行步距 29 = 图标 20 + 标签
@@ -1033,10 +1044,15 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
     /**
      * 主屏展示顺序：按存档隔离的拖拽顺序（HomeGridStore），文件缺失时回落全局顺序表。
      * 商店模式开启时，未购付费 App 不上主屏（购买入口在应用商店 App）。
+     * 星门（t8）：服务端规则禁用的 App（StargateSync id 19 名单）直接不上主屏——
+     * 未同步/旧服不发 → 名单空 → 安全退化全显示。
      */
     private List<IPhoneApp> orderedForHome() {
         java.util.List<String> known = new java.util.ArrayList<>();
         for (IPhoneApp app : PhoneApi.orderedVisibleApps()) {
+            // 星门：被服务器规则禁用的 App 主屏直接不显示（服务端 toast 拒绝逻辑保留，
+            // 兜住直达热键等旁路；名单来自 StargateClient，未同步恒为空集）。
+            if (com.november.mcphone.client.enhance.StargateClient.isHidden(app.id())) continue;
             if (com.november.mcphone.client.StoreClient.needsPurchase(app)) continue;
             known.add(app.id());
         }
@@ -1151,7 +1167,16 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
         SceneNode label = new SceneNode();
         label.setText(app.displayName());
         label.setTextColor(com.november.mcphone.client.enhance.PhoneTheme.text());
-        label.setFontSize(fs(14));
+        // 单行硬约束（t6，用户截图二：4 字名在 fs(14) 下超过格宽折成两行，行内容超出
+        // rowH 预算 → 各行图标垂直错位）：Qz 4.10.0 SceneNode.setMaxLines/setEllipsis
+        // （同款用法 CompanionAppsPage.java:382-383）。省略号生效前提 = 换行宽度 > 0
+        // （SceneLineClamp.java:62），下面的 setMaxTextWidth(cellW) 已保证。
+        label.setMaxLines(1);
+        label.setEllipsis(true);
+        // 字号与行高预算同一本账 fs(APP_LABEL_FONT_SIZE_GUI)（改动前预算 fs(13)/实挂 fs(14)）；
+        // 再按实测宽度自适应缩小（下限 APP_LABEL_FONT_MIN_GUI），放得下的名字就不出省略号；
+        // 仍放不下由上面的单行+省略号兜底。
+        label.setFontSize(fs(fitLabelFontSize(app.displayName(), cellW)));
         label.setMaxTextWidth(cellW);
         label.setTextHorizontalAlign(club.heiqi.uilib.ui.scene.node.TextHorizontalAlign.CENTER);
         label.setHitTestable(false);
@@ -1228,6 +1253,21 @@ public class PhoneUi extends AbstractSceneHostWidget implements com.november.mcp
             activate(app, event.isShiftDown());
         });
         return cell;
+    }
+
+    /**
+     * 主屏标签自适应字号：从 {@link #APP_LABEL_FONT_SIZE_GUI} 起步，用 measurer 实测
+     * 名字宽度，放不进 {@code cellW} 就逐档缩小（每次 -1，下限 {@link #APP_LABEL_FONT_MIN_GUI}）；
+     * 仍放不下由 setMaxLines(1)+setEllipsis(true) 单行截断兜底。返回声明字号
+     * （{@link #fs(int)} 会再乘全局字体缩放，与页面其它文字同一口径）。
+     */
+    private int fitLabelFontSize(String name, int cellW) {
+        for (int size = APP_LABEL_FONT_SIZE_GUI; size > APP_LABEL_FONT_MIN_GUI; size--) {
+            if (measurer.measureWidth(name, fs(size)) <= cellW) {
+                return size;
+            }
+        }
+        return APP_LABEL_FONT_MIN_GUI;
     }
 
     /**

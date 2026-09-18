@@ -42,7 +42,8 @@ import cpw.mods.fml.common.Loader;
  * <p><b>视觉规格</b>（{@code <workspace>\_r2_shots.md} §3.3 逐像素实测，换算系数
  * {@code s = 4.0 px/GUI}）：图标 <b>16 GUI</b>（64px÷4）、行高 <b>21 GUI</b>（84px÷4）、
  * App 名压暗 <b>#949494</b>、右侧「未装」浅灰 <b>#CACBCB</b>、<b>无按钮</b>、
- * <b>无分页</b>、无行间分隔线。</p>
+ * <b>无分页</b>、无行间分隔线。这些 GUI 量在 {@link #page} 建页时按面板宽归一化
+ * （与 {@code PhoneUi.buildHomeGrid} 同口径），不直接当场景像素用。</p>
  *
  * <p><b>与上游的两处刻意差异</b>（都记在 {@code <workspace>\_p2comp.md}）：</p>
  * <ol>
@@ -58,15 +59,22 @@ import cpw.mods.fml.common.Loader;
  */
 public final class CompanionAppsPage {
 
-    // ===================== 上游几何常量 =====================
+    // ===================== 上游几何常量（GUI 单位，建页时按面板归一化） =====================
+    // 【不能直接当场景像素用】这些是上游 120 GUI 宽屏上的 GUI 值（_r2_shots.md 换算系数
+    // s = 4.0 px/GUI 的实测），而本局面板宽是动态的（panelW ≈ 260–900）；字号又走
+    // PhoneUi.fs(9)（随全局字体缩放换算成像素）。几何若不跟着面板归一化，大面板下
+    // 字高（≈ fs(9) 的实测行高）会远大于钉死的行高 → 行内两行（名字 + 需要 XXX）
+    // 互相重叠、21 装不下 → 行与行也重叠（2026-09 用户截图）。归一化口径与
+    // PhoneUi.buildHomeGrid 一致：s = panelWidth / 120.0（下限 ≥1.0）；
+    // 行高再用同一度量端口（ui.runtime() 的 measurer，与布局引擎同源）实测。
 
-    /** 页面左右内边距（上游 {@code CompanionApps.PAD = 6}）。 */
+    /** 页面左右内边距（上游 {@code CompanionApps.PAD = 6} GUI）。 */
     private static final int PAD = 6;
 
     /** 行内图标边长（上游 {@code ICON = 16}；截图实测 64px ÷ 4.0 = 16 GUI）。 */
     private static final int ICON = 16;
 
-    /** 图标与文字、文字与右侧状态之间的间距（上游 {@code GAP = 4}）。 */
+    /** 图标与文字、文字与右侧状态之间的间距（上游 {@code GAP = 4} GUI）。 */
     private static final int GAP = 4;
 
     /** 行高（上游 {@code ROW_H = 21}；截图实测 84px ÷ 4.0 = 21 GUI）。 */
@@ -79,17 +87,16 @@ public final class CompanionAppsPage {
     private static final int HEAD_GAP = 4;
 
     /**
-     * 行内字号与行高。
+     * 行内字号（GUI 基准）。
      *
      * <p>上游画的是原版字体，{@code font.lineHeight = 9}（GUI px）：名字在行顶、
      * 「需要 XXX」在 {@code y + lineHeight + 1}，两行合计 19 &lt; {@link #ROW_H}=21，
-     * 正好装得下。本侧用 {@link SceneNode#setLineHeightPx(int)} <b>显式钉死</b>行高
-     * （Qz 是显式声明制：不设就是自动行高，两行会撑破 21 的行盒）。</p>
+     * 正好装得下。本侧字号经 {@link PhoneUi#fs(int)} 换算成像素（随全局字体缩放）；
+     * 行高不再钉死 9，而是用 {@code ui.runtime().lineHeight(fs(9))}（Qz 公开度量端口，
+     * 与布局引擎同一个 measurer，{@code SceneRuntime.java:178}）实测——
+     * 见 {@link #page} 的归一化段。</p>
      */
     private static final int TEXT_SIZE = 9;
-
-    /** 行内绝对行高（见 {@link #TEXT_SIZE}）。 */
-    private static final int LINE_H = 9;
 
     // ===================== 配色（实测值） =====================
 
@@ -276,7 +283,8 @@ public final class CompanionAppsPage {
             String name = app.displayName();
             if (name != null && !name.isEmpty()) return name;
         } catch (Throwable t) {
-            System.err.println("[mcphone] 读取 " + app.getClass().getName() + " 的名字失败，用 id 代替：" + t);
+            System.err.println("[mcphone] 读取 " + app.getClass().getName()
+                + " 的名字失败，用 id 代替：" + t);
         }
         String id = idOf(app);
         return id == null ? "?" : id;
@@ -295,16 +303,34 @@ public final class CompanionAppsPage {
     /**
      * 构建联动页（挂进 {@link StoreFront} 的页面槽）。
      *
-     * <p>尺寸全部<b>显式 preferred</b>：Qz 没有 flex-wrap、grow 求解器在部分容器旁会
-     * 早退（项目踩坑 #1），所以不依赖 {@code flexGrow} 撑高，行高/间距/图标边长都是
-     * 常量。文本必须 {@code setMaxTextWidth} 才会折行/省略（4.10.0 显式声明制）。</p>
+     * <p><b>几何随面板归一化</b>：上游那些 GUI 常量 {@code PAD/ICON/GAP/ROW_H/HEAD_GAP}
+     * 是 120 GUI 宽屏上的量，直接当场景像素用而字号又走 {@link PhoneUi#fs(int)}
+     * （随全局字体缩放）时，大面板下「字高 &gt; 行高」——行内两行（名字 + 需要 XXX）
+     * 互相重叠、{@code ROW_H=21} 装不下 → 行与行也重叠（2026-09 用户截图）。
+     * 归一化口径与 {@code PhoneUi.buildHomeGrid} 同源：{@code s = panelWidth / 120.0}
+     * （下限 ≥1.0）。行高用 Qz 公开度量端口 {@code SceneRuntime#lineHeight(int)}
+     * （{@code requireTextMeasurer()}，与布局引擎同一个 measurer）按实际字号实测，
+     * 并保证 {@code ROW_H ≥ 2*lineH + 1 + 2*round(2s)}（装得下两行 + 行间 1px
+     * + 上下各 2 GUI 等比的呼吸）。文本行高仍<b>显式钉死</b>为实测值
+     * （Qz 是显式声明制：不设就是自动行高），文本必须 {@code setMaxTextWidth}
+     * 才会折行/省略（4.10.0 显式声明制）。</p>
      */
     public static SceneNode page(PhoneUi ui) {
+        final double s = Math.max(1.0, ui.panelWidth() / 120.0);
+        final int pad = (int) Math.round(PAD * s);
+        final int iconSize = (int) Math.round(ICON * s);
+        final int gap = (int) Math.round(GAP * s);
+        final int headGap = (int) Math.round(HEAD_GAP * s);
+        final int lineH = ui.runtime().lineHeight(PhoneUi.fs(TEXT_SIZE));
+        // 行高两取一大：21 GUI 等比 vs「两行字 + 行间 1px + 上下各 2 GUI 等比呼吸」。
+        final int rowH = Math.max((int) Math.round(ROW_H * s),
+            2 * lineH + 1 + 2 * (int) Math.round(2 * s));
+
         SceneNode page = SceneNode.column();
         page.setFillParentWidth(true);
         // 填满父级（StoreFront 的槽是显式固定高），滚动视口因此有确定高度。
         page.setFillParentHeight(true);
-        page.setPadding(PAD);
+        page.setPadding(pad);
         page.setGap(0);
         page.setScrollable(true);
         page.setClipChildren(true);
@@ -312,9 +338,9 @@ public final class CompanionAppsPage {
         SceneScrolls.attach(ui.runtime(), page);
 
         page.appendChild(PhoneUi.title(tr("msg.mcphone.store_companion")));
-        page.appendChild(gap(HEAD_GAP));
+        page.appendChild(gap(headGap));
         page.appendChild(StoreFront.separator());
-        page.appendChild(gap(HEAD_GAP));
+        page.appendChild(gap(headGap));
 
         List<Entry> rows = entries();
         if (rows.isEmpty()) {
@@ -323,9 +349,9 @@ public final class CompanionAppsPage {
             return page;
         }
 
-        int inner = Math.max(120, ui.panelWidth() - 2 * PAD);
+        int inner = Math.max(120, ui.panelWidth() - 2 * pad);
         for (Entry e : rows) {
-            page.appendChild(row(ui, e, inner));
+            page.appendChild(row(ui, e, inner, iconSize, gap, rowH, lineH));
         }
         return page;
     }
@@ -335,8 +361,12 @@ public final class CompanionAppsPage {
      *
      * <p>右对齐不靠 {@code flexGrow}：文字列宽 = 可用宽 - 图标 - 两个间距 - 状态宽，
      * 于是「图标 + 间距 + 文字列 + 间距 + 状态」恰好等于整行宽，状态自然贴右沿。</p>
+     *
+     * <p>几何量（图标/间距/行高/行内行高）全部来自 {@link #page} 的归一化结果，
+     * 不再用绝对常量。</p>
      */
-    private static SceneNode row(PhoneUi ui, Entry e, int inner) {
+    private static SceneNode row(PhoneUi ui, Entry e, int inner,
+                                 int iconSize, int gap, int rowH, int lineH) {
         String state = tr(e.missing
             ? "msg.mcphone.store_companion_missing"
             : "msg.mcphone.store_companion_installed");
@@ -344,39 +374,42 @@ public final class CompanionAppsPage {
 
         SceneNode row = SceneNode.row();
         row.setFillParentWidth(true);
-        row.setPreferredHeight(ROW_H);
-        row.setGap(GAP);
+        row.setPreferredHeight(rowH);
+        row.setGap(gap);
         row.setCrossAxisAlign(CrossAxisAlign.START);
         row.setHitTestable(false);
 
-        row.appendChild(icon(e.app, ICON));
+        row.appendChild(icon(e.app, iconSize));
 
         // 名字给状态文字让位，否则长名字会压在「未装」上（上游同一句注释）。
-        int textW = Math.max(24, inner - ICON - GAP - stateW - GAP);
+        int textW = Math.max(24, inner - iconSize - gap - stateW - gap);
         SceneNode texts = SceneNode.column();
         texts.setWidthSizing(SceneNode.WidthSizing.SHRINK);
         texts.setPreferredWidth(textW);
-        texts.setPreferredHeight(ROW_H);
+        texts.setPreferredHeight(rowH);
         texts.setGap(1);
         texts.setCrossAxisAlign(CrossAxisAlign.START);
         texts.setHitTestable(false);
-        texts.appendChild(line(e.name, textW,
+        texts.appendChild(line(e.name, textW, lineH,
             e.missing ? COLOR_NAME_MUTED : PhoneTheme.text()));
-        texts.appendChild(line(e.requires, textW, COLOR_SUBTLE));
+        texts.appendChild(line(e.requires, textW, lineH, COLOR_SUBTLE));
         row.appendChild(texts);
 
         // 状态文字不给 maxTextWidth：它是整行的右边界，截断它等于截断对齐基准。
-        row.appendChild(line(state, 0, e.missing ? COLOR_SUBTLE : COLOR_CONFIRM));
+        row.appendChild(line(state, 0, lineH, e.missing ? COLOR_SUBTLE : COLOR_CONFIRM));
         return row;
     }
 
-    /** 行内一段文字（字号/行高显式；maxW &gt; 0 时才声明折行 + 单行省略）。 */
-    private static SceneNode line(String value, int maxW, int color) {
+    /**
+     * 行内一段文字（字号随 {@link PhoneUi#fs(int)} 缩放；行高显式钉死为实测行高，
+     * Qz 显式声明制：不设就是自动行高）。maxW &gt; 0 时才声明折行 + 单行省略。
+     */
+    private static SceneNode line(String value, int maxW, int lineH, int color) {
         SceneNode n = new SceneNode();
         n.setText(value == null ? "" : value);
         n.setTextColor(color);
         n.setFontSize(PhoneUi.fs(TEXT_SIZE));
-        n.setLineHeightPx(LINE_H);
+        n.setLineHeightPx(lineH);
         if (maxW > 0) {
             n.setMaxTextWidth(maxW);
             n.setMaxLines(1);
@@ -386,7 +419,7 @@ public final class CompanionAppsPage {
         return n;
     }
 
-    /** 16px 图标盒：与商店首页/详情页共用 {@link StoreFront#iconBox}（三页同一套画法）。 */
+    /** 图标盒：与商店首页/详情页共用 {@link StoreFront#iconBox}（三页同一套画法）。 */
     private static SceneNode icon(IPhoneApp app, int size) {
         try {
             return StoreFront.iconBox(app, size, Math.max(2, size / 4));
