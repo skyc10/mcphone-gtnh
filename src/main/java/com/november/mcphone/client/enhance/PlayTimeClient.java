@@ -18,13 +18,17 @@ public final class PlayTimeClient {
         public final long totalTicks;
         public final boolean milestone3hShown;
         public final boolean milestone100hShown;
+        /** 服务器本次运行时长（现实 tick）；-1 = 旧服务端未同步。 */
+        public final long serverUptimeTicks;
 
         public Snapshot(long sessionTicks, long totalTicks,
-                        boolean milestone3hShown, boolean milestone100hShown) {
+                        boolean milestone3hShown, boolean milestone100hShown,
+                        long serverUptimeTicks) {
             this.sessionTicks = sessionTicks;
             this.totalTicks = totalTicks;
             this.milestone3hShown = milestone3hShown;
             this.milestone100hShown = milestone100hShown;
+            this.serverUptimeTicks = serverUptimeTicks;
         }
     }
 
@@ -90,5 +94,16 @@ public final class PlayTimeClient {
 
     public static String formatTotal() {
         return format(totalTicks());
+    }
+
+    /** 服务器本次运行的现实 tick；-1 = 未同步（旧服务端不会发这个字段）。 */
+    public static long uptimeTicks() {
+        Snapshot s = snapshot;
+        return s == null ? -1 : s.serverUptimeTicks;
+    }
+
+    /** 服务器时长展示：复用 format()，未同步显示「同步中」。 */
+    public static String formatUptime() {
+        return format(uptimeTicks());
     }
 }

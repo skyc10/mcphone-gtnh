@@ -97,6 +97,30 @@ public final class StargateConfig {
         return chatFriendTeleport;
     }
 
+    /**
+     * 【仅服务端调用】星门规则当前禁用的手机 App id 名单（t8，字面对应客户端
+     * BuiltinApps 注册的 id）。随 {@code StargateSync}(id 19, S→C) 推给客户端，
+     * 主屏 {@code PhoneUi.orderedForHome()} 按名单直接不显示：
+     * <ul>
+     *   <li>"enderchest" —— [enderchest] enabled=false 时禁；</li>
+     *   <li>"ae2" —— [ae2] registerWirelessTerminal 与 builtinTerminal <b>全关才禁</b>
+     *       （留任一条终端路径 ME App 都可用，不该从主屏藏掉）。</li>
+     * </ul>
+     * 传送/聊天没有总开关（表现为数量/冷却约束，属受限而非禁用），不隐藏。
+     * 注意：{@link #load()} 在本 JVM 无服务端实例时保持默认值（星门默认全禁），
+     * 客户端误调会得到「全禁」名单——调用点必须约束在服务端（PlayTimeTracker）。
+     */
+    public static java.util.List<String> disabledAppIds() {
+        java.util.List<String> out = new java.util.ArrayList<String>(2);
+        if (!enderchestEnabled()) {
+            out.add("enderchest");
+        }
+        if (!registerWirelessTerminal() && !builtinTerminal()) {
+            out.add("ae2");
+        }
+        return out;
+    }
+
     private static void load() {
         synchronized (LOCK) {
             try {

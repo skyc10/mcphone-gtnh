@@ -37,6 +37,9 @@ public final class ClientHooks {
     /** PlayTimeSync 包在 netty 线程落地，客户端 tick 主线程应用（游玩时长快照）。 */
     public static volatile com.november.mcphone.client.enhance.PlayTimeClient.Snapshot pendingPlayTimeSync;
 
+    /** StargateSync 包在 netty 线程落地，客户端 tick 主线程应用（星门禁用名单，t8）。 */
+    public static volatile java.util.List<String> pendingStargateSync;
+
     /**
      * NoteSync 分批包收齐后的完整列表队列（netty 线程入队，客户端 tick 主线程出队）。
      * 只有在累加缓冲收齐 total 条后才入队一份完整列表。
@@ -171,6 +174,13 @@ public final class ClientHooks {
             com.november.mcphone.client.enhance.PlayTimeClient.onSync(playTime);
             com.november.mcphone.client.enhance.PlayTimeClient.refreshClockPage();
         }
+        // 服务端→客户端星门禁用名单（netty 线程缓存，主线程应用；手机开着时主屏即时重建）。
+        java.util.List<String> stargate = pendingStargateSync;
+        if (stargate != null) {
+            pendingStargateSync = null;
+            com.november.mcphone.client.enhance.StargateClient.onSync(stargate);
+            com.november.mcphone.client.enhance.StargateClient.refreshPhoneIfOpen();
+        }
         // 聊天 App：会话/消息/图片同步包在 netty 线程入队，这里主线程应用并刷新页面。
         com.november.mcphone.feature.chat.client.ChatClient.applyPending();
         // 服务端→客户端便签同步（netty 线程分批累加收齐入队，主线程整批应用；含旧本地便签一次性导入）。
@@ -182,6 +192,8 @@ public final class ClientHooks {
         // （换存档后未重新同步前不得展示旧值）。
         if (mc.theWorld == null) {
             com.november.mcphone.client.enhance.PlayTimeClient.reset();
+            // 星门禁用名单同样换存档即清：未重新同步前不得隐藏任何 App（安全退化）。
+            com.november.mcphone.client.enhance.StargateClient.reset();
             com.november.mcphone.client.enhance.GreetingToast.onWorldLeave();
             StoreClient.reset();
             com.november.mcphone.feature.chat.client.ChatClient.reset();

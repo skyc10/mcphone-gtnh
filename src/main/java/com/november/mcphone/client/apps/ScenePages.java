@@ -184,11 +184,11 @@ public final class ScenePages {
 
         // 游玩时长（服务端权威计时，PlayTimeSync 同步；未同步显示"同步中"）。
         page.appendChild(infoRow(
-            StatCollector.translateToLocal("msg.mcphone.playtime_session"),
-            com.november.mcphone.client.enhance.PlayTimeClient.formatSession()));
-        page.appendChild(infoRow(
-            StatCollector.translateToLocal("msg.mcphone.playtime_total"),
+            StatCollector.translateToLocal("msg.mcphone.playtime_player"),
             com.november.mcphone.client.enhance.PlayTimeClient.formatTotal()));
+        page.appendChild(infoRow(
+            StatCollector.translateToLocal("msg.mcphone.playtime_server"),
+            com.november.mcphone.client.enhance.PlayTimeClient.formatUptime()));
         return page;
     }
 

@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
  * 5=购买App(C→S) 6=解锁状态同步(S→C)
  * 15=PlayTimeSync(S→C) 16=PlayTimeMilestone(C→S)。
  * 17=RequestUnlockedApps(C→S，空包=主动拉取已购列表) 18=PurchaseResult(S→C，购买结果)。
+ * 19=StargateSync(S→C，星门规则禁用的 App id 名单；17/18 已被商店两包占用，19 是接替的下一个空闲号)。
  * 7=好友操作(C→S) 8=聊天消息(C→S) 9=会话/好友全量同步(S→C) 10=消息推送(S→C)
  * 11=图片上传/拉取(C→S)。
  * 12=便签保存/删除(C→S) 13=便签全量同步(S→C) 14=便签印成书(C→S)。
@@ -68,6 +69,9 @@ public final class NetworkHandler {
         // 之前未占用的下一个空闲号（0..16 已分配，见上）。
         INSTANCE.registerMessage(RequestUnlockedApps.Handler.class, RequestUnlockedApps.class, 17, Side.SERVER);
         INSTANCE.registerMessage(PurchaseResult.Handler.class, PurchaseResult.class, 18, Side.CLIENT);
+        // 星门（t8）：服务端把「当前被星门规则禁用的 App id」名单推给客户端，主屏直接不显示。
+        // 注意 17/18 已被商店两包占用，这里取接替的下一个空闲号 19（0..18 已分配，见文件头）。
+        INSTANCE.registerMessage(StargateSync.Handler.class, StargateSync.class, 19, Side.CLIENT);
         com.november.mcphone.store.PlayTimeTracker.register();
         // 服务端主 tick 任务泵：在 init() 里【一次性】注册到 FML 总线
         //（ServerTickEvent 只由 MinecraftServer 派发，纯客户端 JVM 永不触发，注册无副作用）。
@@ -627,6 +631,68 @@ public final class NetworkHandler {
                 // 1.7.10 客户端包处理在 netty 线程：只把结论整体发布成 StoreClient 里的一条
                 // 不可变快照，绝不在这里碰 UI；UI 每帧读 StoreClient.lastPurchaseResult()。
                 com.november.mcphone.client.StoreClient.onPurchaseResult(msg.appId, msg.result);
+                return null;
+            }
+        }
+    }
+
+    /**
+     * 服务端 → 客户端：星门规则当前禁用的手机 App id 名单（登录全发 + 每 20 秒变化才重发，t8）。
+     *
+     * <p><b>背景</b>：{@code config/mcphone-stargate.cfg} 只在服务端加载
+     * （{@code core/StargateConfig}），客户端不知道配置；改动前被禁 App 的图标照样渲染、
+     * 点击才被服务端拒绝并 toast「已被服务器规则（星门）关闭」（AppIntegrations openEnderChest /
+     * openAe2Terminal 的星门分支）。本包把 {@code StargateConfig.disabledAppIds()} 的结论推给
+     * 客户端，{@code PhoneUi.orderedForHome()} 直接过滤——禁了就看不见（用户截图三期望）。
+     * 服务端 toast 兜底原样保留（直达热键等旁路仍会被拒）。</p>
+     *
+     * <p><b>兼容性</b>：旧服务端没有本包（id 不存在）→ 客户端名单保持空集 → 全显示，安全退化。</p>
+     *
+     * <p><b>线格式</b> = {@code count(short) + count×writeUtf}（复用本文件 readUtf/writeUtf 的
+     * short 长度前缀 UTF-8；解码带逐条边界防御，同 UnlockSync）。</p>
+     */
+    public static class StargateSync implements IMessage {
+
+        /** 服务端规则禁用的 App id（id 口径同 BuiltinApps 注册值："enderchest"、"ae2"）。 */
+        public java.util.List<String> disabledAppIds = new java.util.ArrayList<>();
+
+        public StargateSync() {}
+
+        public StargateSync(java.util.List<String> ids) {
+            if (ids != null) {
+                this.disabledAppIds = ids;
+            }
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int n = buf.readUnsignedShort();
+            disabledAppIds = new java.util.ArrayList<>(Math.min(n, 64));
+            for (int i = 0; i < n; i++) {
+                // 防伪造/截断包：剩余字节不足一条记录（2 长度前缀 + ≥0 数据）即止。
+                if (buf.readableBytes() < 2) {
+                    break;
+                }
+                disabledAppIds.add(readUtf(buf));
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeShort(disabledAppIds.size());
+            for (String id : disabledAppIds) {
+                writeUtf(buf, id == null ? "" : id);
+            }
+        }
+
+        public static class Handler implements IMessageHandler<StargateSync, IMessage> {
+
+            @Override
+            public IMessage onMessage(StargateSync msg, MessageContext ctx) {
+                // 1.7.10 客户端包处理在 netty 线程：先缓存，客户端 tick 主线程应用
+                //（同 WaypointSync/UnlockSync/PlayTimeSync 模式；主线程里再落地 + 重建页面）。
+                com.november.mcphone.client.ClientHooks.pendingStargateSync =
+                    new java.util.ArrayList<>(msg.disabledAppIds);
                 return null;
             }
         }
@@ -1289,22 +1355,33 @@ public final class NetworkHandler {
         }
     }
 
-    /** 服务端 → 客户端：游玩时长快照（登录/周期推送，服务端权威，单位现实 tick）。 */
+    /**
+     * 服务端 → 客户端：游玩时长快照（登录/周期推送，服务端权威，单位现实 tick）。
+     *
+     * <p>尾字段 {@code serverUptimeTicks}（服务器本次运行的 tick 计数）是后加的：
+     * 旧服务端不会发——fromBytes 读够既有 3 字段后按 {@code readableBytes()} 判断，
+     * 不足 8 字节记 -1（未同步）；新客户端读旧服务端包因此安全（旧客户端读新包
+     * 则忽略多出的尾部字节）。</p>
+     */
     public static class PlayTimeSync implements IMessage {
 
         public long sessionTicks;
         public long totalTicks;
         public boolean milestone3hShown;
         public boolean milestone100hShown;
+        /** 服务器本次运行时长（现实 tick，服务端启动起算）；-1 = 旧服务端未同步。 */
+        public long serverUptimeTicks;
 
         public PlayTimeSync() {}
 
         public PlayTimeSync(long sessionTicks, long totalTicks,
-                            boolean milestone3hShown, boolean milestone100hShown) {
+                            boolean milestone3hShown, boolean milestone100hShown,
+                            long serverUptimeTicks) {
             this.sessionTicks = sessionTicks;
             this.totalTicks = totalTicks;
             this.milestone3hShown = milestone3hShown;
             this.milestone100hShown = milestone100hShown;
+            this.serverUptimeTicks = serverUptimeTicks;
         }
 
         @Override
@@ -1314,6 +1391,8 @@ public final class NetworkHandler {
             byte flags = buf.readByte();
             milestone3hShown = (flags & 1) != 0;
             milestone100hShown = (flags & 2) != 0;
+            // 向后兼容：旧服务端只发上面 17 字节，没有 uptime 长整型。
+            serverUptimeTicks = buf.readableBytes() >= 8 ? buf.readLong() : -1L;
         }
 
         @Override
@@ -1322,6 +1401,7 @@ public final class NetworkHandler {
             buf.writeLong(totalTicks);
             byte flags = (byte) ((milestone3hShown ? 1 : 0) | (milestone100hShown ? 2 : 0));
             buf.writeByte(flags);
+            buf.writeLong(serverUptimeTicks);
         }
 
         public static class Handler implements IMessageHandler<PlayTimeSync, IMessage> {
@@ -1332,7 +1412,8 @@ public final class NetworkHandler {
                 com.november.mcphone.client.ClientHooks.pendingPlayTimeSync =
                     new com.november.mcphone.client.enhance.PlayTimeClient.Snapshot(
                         msg.sessionTicks, msg.totalTicks,
-                        msg.milestone3hShown, msg.milestone100hShown);
+                        msg.milestone3hShown, msg.milestone100hShown,
+                        msg.serverUptimeTicks);
                 return null;
             }
         }
